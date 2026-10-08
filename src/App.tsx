@@ -1,10 +1,25 @@
 import React, { useEffect, useState } from "react";
-import { CloudRain, ExternalLink, Loader2, RefreshCw, UserMinus, ShieldAlert } from "lucide-react";
-import { obtenerInscriptosSheet, registrarBajaSheet, type InscriptoSheet } from "@/lib/sheets.functions";
+import { CloudRain, ExternalLink, Loader2, RefreshCw, UserMinus, ShieldAlert, CheckCircle2, AlertCircle } from "lucide-react";
+import { obtenerInscriptosSheet, obtenerPlantelSheet, registrarBajaSheet, type InscriptoSheet, type JugadorPlantelSheet } from "@/lib/sheets.functions";
 import { SEDES, SEDE_LABELS, type Sede } from "@/lib/types";
 
+interface InscripcionLocal {
+  id: string;
+  apodo: string;
+  email: string;
+  sede: string;
+  flexible: boolean;
+  juegaConLluvia: boolean;
+  vip: boolean;
+  estadoPago: "AL_DÍA" | "DEBE";
+  fecha: string;
+}
+
 export default function App() {
-  const [inscriptos, setInscriptos] = useState<InscriptoSheet[]>([]);
+  const [inscriptosSheet, setInscriptosSheet] = useState<InscriptoSheet[]>([]);
+  const [plantel, setPlantel] = useState<JugadorPlantelSheet[]>([]);
+  const [inscripciones, setInscripciones] = useState<InscripcionLocal[]>([]);
+  
   const [cargando, setCargando] = useState(true);
   const [sincronizando, setSincronizando] = useState(false);
   const [bajando, setBajando] = useState<string | null>(null);
@@ -14,28 +29,73 @@ export default function App() {
   const [sedesCanceladas, setSedesCanceladas] = useState<Sede[]>([]);
 
   const hoy = new Date().toISOString().slice(0, 10);
-  const FORM_URL = "https://forms.gle/18-6FV5tk7gjSssBNUWCojRMrI4CYR18rfz3BmVUAZ3A"; // Reemplazá con tu link de form si difiere
+  const FORM_URL = "https://forms.gle/18-6FV5tk7gjSssBNUWCojRMrI4CYR18rfz3BmVUAZ3A";
 
-  const cargarDatos = async () => {
+  const cargarDatosIniciales = async () => {
     setCargando(true);
     try {
-      const data = await obtenerInscriptosSheet();
-      setInscriptos(data);
+      const [sheetData, plantelData] = await Promise.all([
+        obtenerInscriptosSheet(),
+        obtenerPlantelSheet()
+      ]);
+      setInscriptosSheet(sheetData);
+      setPlantel(plantelData);
     } catch (err) {
-      console.error("Error al cargar planilla:", err);
+      console.error("Error al cargar datos:", err);
     } finally {
       setCargando(false);
     }
   };
 
   useEffect(() => {
-    void cargarDatos();
+    void cargarDatosIniciales();
   }, []);
 
-  const handleSincronizar = async () => {
+  // MOTOR DE SINCRONIZACIÓN (Paso 1)
+  const sincronizarPlanilla = async () => {
     setSincronizando(true);
-    await cargarDatos();
-    setSincronizando(false);
+    try {
+      const [sheetData, plantelData] = await Promise.all([
+        obtenerInscriptosSheet(),
+        obtenerPlantelSheet()
+      ]);
+      
+      setInscriptosSheet(sheetData);
+      setPlantel(plantelData);
+
+      // Mapear pagos desde el plantel por email
+      const pagosMap = new Map<string, boolean>();
+      plantelData.forEach(p => {
+        if (p.email) pagosMap.set(p.email.toLowerCase().trim(), p.pago);
+        if (p.email_alternativo) pagosMap.set(p.email_alternativo.toLowerCase().trim(), p.pago);
+      });
+
+      // Construir la lista oficial de inscriptos de hoy
+      const consolidadas: InscripcionLocal[] = sheetData.map((item, idx) => {
+        const mail = item.email.toLowerCase().trim();
+        const estaPagado = pagosMap.get(mail) ?? false;
+
+        return {
+          id: `${mail}-${idx}`,
+          apodo: item.apodo || item.email,
+          email: item.email,
+          sede: item.sede ?? item.turno ?? "CANTON",
+          flexible: item.flexible,
+          juegaConLluvia: item.juega_con_lluvia,
+          vip: item.vip,
+          estadoPago: estaPagado ? "AL_DÍA" : "DEBE",
+          fecha: `${item.fecha} ${item.hora}`
+        };
+      });
+
+      setInscripciones(consolidadas);
+      alert(`✅ Sincronización exitosa: ${consolidadas.length} inscripto(s) procesado(s).`);
+    } catch (err) {
+      alert("❌ Error al sincronizar la planilla.");
+      console.error(err);
+    } finally {
+      setSincronizando(false);
+    }
   };
 
   const toggleSedeCancelada = (sede: Sede) => {
@@ -52,8 +112,8 @@ export default function App() {
     try {
       const res = await registrarBajaSheet(apodo, "Baja desde Panel Web");
       if (res.ok) {
-        alert(`Baja de ${apodo} registrada con éxito.`);
-        await cargarDatos();
+        alert(`Baja de ${apodo} registrada con éxito en el Google Sheet.`);
+        setInscripciones(inscripciones.filter(i => i.apodo !== apodo));
       } else {
         alert(`Error al registrar baja: ${res.mensaje}`);
       }
@@ -64,9 +124,18 @@ export default function App() {
     }
   };
 
+  const toggleEstadoPagoLocal = (id: string) => {
+    setInscripciones(inscripciones.map(i => {
+      if (i.id === id) {
+        return { ...i, estadoPago: i.estadoPago === "AL_DÍA" ? "DEBE" : "AL_DÍA" };
+      }
+      return i;
+    }));
+  };
+
   return (
     <div className="min-h-screen bg-zinc-50 p-4 sm:p-6 text-zinc-900">
-      <div className="mx-auto max-w-3xl space-y-6">
+      <div className="mx-auto max-w-4xl space-y-6">
         
         {/* Cabecera */}
         <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200">
@@ -75,7 +144,7 @@ export default function App() {
               ⚽ Panel de Convocatorias · <span className="text-zinc-500 font-normal text-base">{hoy}</span>
             </h1>
             <span className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 w-fit">
-              🟢 Sistema Activo (Vite)
+              🟢 Sincronización V18 Activa
             </span>
           </div>
 
@@ -89,25 +158,26 @@ export default function App() {
               <ExternalLink className="size-4" />
               Abrir Formulario de Inscripción
             </a>
+            
+            {/* BOTÓN PRINCIPAL DE SINCRONIZACIÓN (PASO 1) */}
             <button
-              onClick={() => void handleSincronizar()}
+              onClick={() => void sincronizarPlanilla()}
               disabled={sincronizando}
-              className="inline-flex items-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 transition disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition disabled:opacity-50 shadow-sm"
             >
               {sincronizando ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-              Actualizar Planilla
+              Traer / Sincronizar Inscriptos
             </button>
           </div>
         </div>
 
-        {/* Panel de Controles (Lluvia y Sedes) */}
+        {/* Panel de Controles (Lluvia y Sedes con San Matías y Puertos 2) */}
         <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200 space-y-4">
           <h2 className="text-base font-semibold text-zinc-800 flex items-center gap-2">
             <ShieldAlert className="size-5 text-amber-600" />
             Controles de Cancha y Clima
           </h2>
 
-          {/* Suspensión por Lluvia */}
           <div className="flex items-center justify-between rounded-lg border border-zinc-100 bg-zinc-50 p-4">
             <div className="flex items-center gap-2">
               <CloudRain className="size-5 text-blue-500" />
@@ -124,10 +194,9 @@ export default function App() {
             />
           </div>
 
-          {/* Sedes Canceladas / Puertos 2 */}
           <div className="rounded-lg border border-zinc-100 bg-zinc-50 p-4 space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-              Sedes Habilitadas y Cancelaciones (Incluye Puertos 2)
+              Sedes Habilitadas y Cancelaciones (San Matías y Puertos 2)
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {SEDES.map((sede) => {
@@ -153,60 +222,73 @@ export default function App() {
           </div>
         </div>
 
-        {/* Listado de Inscriptos */}
+        {/* 1. INCRIPTOS CRUDOS EN LA PLANILLA */}
         <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-semibold text-zinc-800">
-              Inscriptos en la Planilla ({inscriptos.length})
-            </h2>
-          </div>
-
+          <h2 className="text-base font-semibold text-zinc-800 mb-3">
+            Inscriptos en el Formulario ({inscriptosSheet.length})
+          </h2>
           {cargando ? (
-            <div className="flex items-center justify-center py-8 text-zinc-500 gap-2">
-              <Loader2 className="size-5 animate-spin" />
-              Leyendo respuestas de Google Sheets...
+            <p className="text-sm text-zinc-500 py-4 flex items-center gap-2">
+              <Loader2 className="size-4 animate-spin" /> Leyendo Google Sheets...
+            </p>
+          ) : inscriptosSheet.length === 0 ? (
+            <p className="text-sm text-zinc-500">No hay respuestas nuevas en el formulario.</p>
+          ) : (
+            <div className="divide-y divide-zinc-100 max-h-60 overflow-y-auto">
+              {inscriptosSheet.map((item, idx) => (
+                <div key={idx} className="flex items-center justify-between py-2 text-xs sm:text-sm">
+                  <span className="font-medium">{item.apodo || item.email}</span>
+                  <div className="flex items-center gap-2">
+                    {item.vip && <span className="bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded text-[10px] font-bold">VIP</span>}
+                    <span className="bg-zinc-100 px-2 py-0.5 rounded font-semibold text-zinc-700">{item.sede ?? item.turno}</span>
+                    {item.flexible && <span className="bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded text-[10px] font-bold">FLEX</span>}
+                  </div>
+                </div>
+              ))}
             </div>
-          ) : inscriptos.length === 0 ? (
+          )}
+        </div>
+
+        {/* 2. ANOTADOS DE HOY (CONSOLIDADOS TRAS SINCRONIZAR) */}
+        <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200">
+          <h2 className="text-base font-semibold text-zinc-800 mb-3">
+            Anotados y Sincronizados de Hoy ({inscripciones.length})
+          </h2>
+          {inscripciones.length === 0 ? (
             <p className="text-sm text-zinc-500 py-4 text-center">
-              No se encontraron inscriptos cargados en este momento.
+              Todavía no sincronizaste la planilla. Hacé clic en <span className="font-semibold text-emerald-600">&quot;Traer / Sincronizar Inscriptos&quot;</span> arriba.
             </p>
           ) : (
-            <div className="divide-y divide-zinc-100 overflow-x-auto">
-              {inscriptos.map((item, idx) => (
-                <div key={`${item.email}-${idx}`} className="flex items-center justify-between py-3 gap-2 text-sm">
+            <div className="space-y-2">
+              {inscripciones.map((i) => (
+                <div key={i.id} className="flex flex-wrap items-center justify-between rounded-lg bg-zinc-50 border border-zinc-200 px-3 py-2 text-sm gap-2">
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="font-semibold text-zinc-900 truncate">
-                      {item.apodo || item.email}
-                    </span>
-                    {item.vip && (
-                      <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800">
-                        VIP
-                      </span>
-                    )}
-                    <span className="rounded bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-600">
-                      {item.sede ?? item.turno ?? "Sin Turno"}
-                    </span>
-                    {item.flexible && (
-                      <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-800">
-                        FLEX
-                      </span>
-                    )}
+                    <span className="font-semibold truncate">{i.apodo}</span>
+                    {i.vip && <span className="bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded text-[10px] font-bold">VIP</span>}
+                    <span className="text-xs bg-white border border-zinc-200 px-2 py-0.5 rounded font-medium">{i.sede}</span>
+                    {i.flexible && <span className="bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded text-[10px] font-bold">FLEX</span>}
                   </div>
 
-                  <div className="flex items-center gap-3 shrink-0">
-                    <span className="text-xs text-zinc-400 hidden sm:inline">
-                      {item.fecha} {item.hora}
-                    </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {/* Botón de pago */}
                     <button
-                      onClick={() => void handleDarDeBaja(item.apodo || item.email)}
-                      disabled={bajando === (item.apodo || item.email)}
-                      className="inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-100 transition disabled:opacity-50"
+                      onClick={() => toggleEstadoPagoLocal(i.id)}
+                      className={`px-2.5 py-1 rounded text-xs font-bold transition ${
+                        i.estadoPago === "AL_DÍA"
+                          ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
+                          : "bg-red-100 text-red-800 hover:bg-red-200"
+                      }`}
                     >
-                      {bajando === (item.apodo || item.email) ? (
-                        <Loader2 className="size-3 animate-spin" />
-                      ) : (
-                        <UserMinus className="size-3" />
-                      )}
+                      {i.estadoPago === "AL_DÍA" ? "✅ Al día" : "❌ Debe"}
+                    </button>
+
+                    {/* Botón de baja */}
+                    <button
+                      onClick={() => void handleDarDeBaja(i.apodo)}
+                      disabled={bajando === i.apodo}
+                      className="inline-flex items-center gap-1 rounded bg-red-50 border border-red-200 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-100 transition disabled:opacity-50"
+                    >
+                      {bajando === i.apodo ? <Loader2 className="size-3 animate-spin" /> : <UserMinus className="size-3" />}
                       Bajar
                     </button>
                   </div>
