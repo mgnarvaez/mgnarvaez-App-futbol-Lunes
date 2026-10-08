@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { CloudRain, ExternalLink, Loader2, RefreshCw, UserMinus, ShieldAlert, Shuffle, Users, Copy, Check } from "lucide-react";
+import { CloudRain, ExternalLink, Loader2, RefreshCw, UserMinus, ShieldAlert, Shuffle, Users, Copy, Check, Shield } from "lucide-react";
 import { ejecutarOrganizarSheet, leerInscriptos, obtenerPlantelSheet, registrarBajaSheet, type InscriptoSheet, type JugadorPlantelSheet } from "@/lib/sheets.functions";
 import { SEDES, SEDE_LABELS, type Sede, type InscripcionLocal } from "@/lib/types";
 import { armarConvocatoriasPorSede, type SedeConvocatoria } from "@/lib/services/armadorService";
+import { dividirEnEquipos } from "@/lib/services/equiposService";
 
 export default function App() {
   const [inscriptosSheet, setInscriptosSheet] = useState<InscriptoSheet[]>([]);
@@ -91,7 +92,7 @@ export default function App() {
       );
       setSedesArmadas(resultadoArmado);
 
-      alert(`✅ Sincronización exitosa: ${consolidadas.length} inscripto(s) actualizados al instante.`);
+      alert(`✅ Sincronización exitosa: ${consolidadas.length} inscripto(s) actualizados.`);
     } catch (err) {
       alert("❌ Error al sincronizar la planilla.");
       console.error(err);
@@ -162,9 +163,21 @@ export default function App() {
     if (!sede.activa) {
       texto += `❌ *SEDE SUSPENDIDA*: ${sede.motivoSuspension || "No disponible"}\n`;
     } else {
+      const equipos = dividirEnEquipos(sede.convocados);
+      
       texto += `✅ *TITULARES (${sede.convocados.length}/${sede.capacidad})*:\n`;
       sede.convocados.forEach((j, i) => {
         texto += `${i + 1}. ${j.apodo}${j.vip ? " ⭐" : ""}\n`;
+      });
+
+      texto += `\n⚪ *EQUIPO BLANCOS*:\n`;
+      equipos.blancos.forEach((j, i) => {
+        texto += `- ${j.apodo}\n`;
+      });
+
+      texto += `\n⬛ *EQUIPO NEGROS*:\n`;
+      equipos.negros.forEach((j, i) => {
+        texto += `- ${j.apodo}\n`;
       });
 
       if (sede.suplentes.length > 0) {
@@ -184,13 +197,14 @@ export default function App() {
     <div className="min-h-screen bg-zinc-50 p-4 sm:p-6 text-zinc-900">
       <div className="mx-auto max-w-4xl space-y-6">
         
+        {/* Cabecera */}
         <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-zinc-100 pb-4">
             <h1 className="text-xl font-bold flex items-center gap-2">
               ⚽ Panel de Convocatorias · <span className="text-zinc-500 font-normal text-base">{hoy}</span>
             </h1>
             <span className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 w-fit">
-              🟢 Sincronización Instantánea Activa
+              🟢 Blancos vs. Negros Activo
             </span>
           </div>
 
@@ -216,6 +230,7 @@ export default function App() {
           </div>
         </div>
 
+        {/* Controles de Cancha y Clima */}
         <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200 space-y-4">
           <h2 className="text-base font-semibold text-zinc-800 flex items-center gap-2">
             <ShieldAlert className="size-5 text-amber-600" />
@@ -284,11 +299,12 @@ export default function App() {
           </div>
         </div>
 
+        {/* EQUIPOS ARMADOS (BLANCOS VS NEGROS) */}
         <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200 space-y-4">
           <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
             <h2 className="text-base font-semibold text-zinc-800 flex items-center gap-2">
               <Users className="size-5 text-emerald-600" />
-              Convocados Armados por Sede
+              Equipos Armados (Blancos vs. Negros)
             </h2>
             <button
               onClick={rearmarPartidos}
@@ -300,83 +316,89 @@ export default function App() {
 
           {Object.keys(sedesArmadas).length === 0 ? (
             <p className="text-sm text-zinc-500 py-4 text-center">
-              Sincroniza la planilla para ver el armado automático de canchas.
+              Sincroniza la planilla para ver el armado automático de equipos.
             </p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {Object.values(sedesArmadas).map((sede) => (
-                <div key={sede.nombre} className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-bold text-zinc-800">
-                      {SEDE_LABELS[sede.nombre as Sede] || sede.nombre}
-                    </h3>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => copiarParaWhatsApp(sede)}
-                        title="Copiar lista para WhatsApp"
-                        className={`inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg font-medium transition ${
-                          copiadoSede === sede.nombre
-                            ? "bg-emerald-600 text-white"
-                            : "bg-zinc-200 hover:bg-zinc-300 text-zinc-800"
-                        }`}
-                      >
-                        {copiadoSede === sede.nombre ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-                        {copiadoSede === sede.nombre ? "¡Copiado!" : "WhatsApp"}
-                      </button>
-                      <span className={`text-xs px-2 py-0.5 rounded font-bold ${
-                        sede.activa ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"
-                      }`}>
-                        {sede.activa ? `${sede.convocados.length} / ${sede.capacidad}` : "SUSPENDIDA"}
-                      </span>
+              {Object.values(sedesArmadas).map((sede) => {
+                const equipos = dividirEnEquipos(sede.convocados);
+                return (
+                  <div key={sede.nombre} className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-bold text-zinc-800">
+                        {SEDE_LABELS[sede.nombre as Sede] || sede.nombre}
+                      </h3>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => copiarParaWhatsApp(sede)}
+                          title="Copiar lista y equipos para WhatsApp"
+                          className={`inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg font-medium transition ${
+                            copiadoSede === sede.nombre
+                              ? "bg-emerald-600 text-white"
+                              : "bg-zinc-200 hover:bg-zinc-300 text-zinc-800"
+                          }`}
+                        >
+                          {copiadoSede === sede.nombre ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                          {copiadoSede === sede.nombre ? "¡Copiado!" : "WhatsApp"}
+                        </button>
+                        <span className={`text-xs px-2 py-0.5 rounded font-bold ${
+                          sede.activa ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"
+                        }`}>
+                          {sede.activa ? `${sede.convocados.length} / ${sede.capacidad}` : "SUSPENDIDA"}
+                        </span>
+                      </div>
                     </div>
-                  </div>
 
-                  {!sede.activa ? (
-                    <p className="text-xs text-red-600 font-medium py-2">
-                      ❌ {sede.motivoSuspension || "Sede suspendida"}
-                    </p>
-                  ) : (
-                    <div className="space-y-2 text-xs">
-                      <div>
-                        <p className="font-semibold text-zinc-500 uppercase tracking-wider mb-1">Titulares ({sede.convocados.length})</p>
-                        {sede.convocados.length === 0 ? (
-                          <p className="text-zinc-400 italic">Sin jugadores asignados</p>
-                        ) : (
-                          <ul className="space-y-1">
-                            {sede.convocados.map((j, i) => (
-                              <li key={i} className="flex items-center justify-between bg-white px-2.5 py-1 rounded border border-zinc-200">
-                                <span className="font-medium">{j.apodo}</span>
-                                <div className="flex items-center gap-1">
-                                  {j.vip && <span className="text-[9px] bg-amber-100 text-amber-800 px-1 rounded font-bold">VIP</span>}
-                                  {j.flexible && <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1 rounded font-bold">FLEX</span>}
-                                </div>
-                              </li>
+                    {!sede.activa ? (
+                      <p className="text-xs text-red-600 font-medium py-2">
+                        ❌ {sede.motivoSuspension || "Sede suspendida"}
+                      </p>
+                    ) : (
+                      <div className="space-y-3 text-xs">
+                        {/* Division en Equipos Blancos y Negros */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="rounded-lg bg-white p-2.5 border border-zinc-200 space-y-1">
+                            <p className="font-bold text-zinc-700 flex items-center gap-1 border-b pb-1">
+                              <Shield className="size-3 text-zinc-400" /> Blancos ({equipos.blancos.length})
+                            </p>
+                            {equipos.blancos.map((j, i) => (
+                              <p key={i} className="truncate text-zinc-600">• {j.apodo}</p>
                             ))}
-                          </ul>
+                          </div>
+
+                          <div className="rounded-lg bg-zinc-900 text-zinc-100 p-2.5 border border-zinc-800 space-y-1">
+                            <p className="font-bold text-zinc-200 flex items-center gap-1 border-b border-zinc-800 pb-1">
+                              <Shield className="size-3 text-zinc-400" /> Negros ({equipos.negros.length})
+                            </p>
+                            {equipos.negros.map((j, i) => (
+                              <p key={i} className="truncate text-zinc-300">• {j.apodo}</p>
+                            ))}
+                          </div>
+                        </div>
+
+                        {sede.suplentes.length > 0 && (
+                          <div>
+                            <p className="font-semibold text-amber-600 uppercase tracking-wider mb-1">Suplentes ({sede.suplentes.length})</p>
+                            <ul className="space-y-1">
+                              {sede.suplentes.map((j, i) => (
+                                <li key={i} className="flex items-center justify-between bg-amber-50/50 px-2.5 py-1 rounded border border-amber-200 text-amber-900">
+                                  <span className="font-medium">{j.apodo}</span>
+                                  <span className="text-[9px] bg-amber-200 text-amber-800 px-1 rounded font-bold">SUPLENTE</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
                         )}
                       </div>
-
-                      {sede.suplentes.length > 0 && (
-                        <div>
-                          <p className="font-semibold text-amber-600 uppercase tracking-wider mb-1">Suplentes ({sede.suplentes.length})</p>
-                          <ul className="space-y-1">
-                            {sede.suplentes.map((j, i) => (
-                              <li key={i} className="flex items-center justify-between bg-amber-50/50 px-2.5 py-1 rounded border border-amber-200 text-amber-900">
-                                <span className="font-medium">{j.apodo}</span>
-                                <span className="text-[9px] bg-amber-200 text-amber-800 px-1 rounded font-bold">SUPLENTE</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))}
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
 
+        {/* CONTROL GENERAL DE ANOTADOS */}
         <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200">
           <h2 className="text-base font-semibold text-zinc-800 mb-3">
             Control General de Anotados ({inscripciones.length})
@@ -393,7 +415,7 @@ export default function App() {
                     <span className="font-semibold truncate">{i.apodo}</span>
                     {i.vip && <span className="bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded text-[10px] font-bold">VIP</span>}
                     <span className="text-xs bg-white border border-zinc-200 px-2 py-0.5 rounded font-medium">{i.sede}</span>
-                    {i.flexible && <span className="text-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded text-[10px] font-bold">FLEX</span>}
+                    {i.flexible && <span className="bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded text-[10px] font-bold">FLEX</span>}
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
