@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react";
-import { CloudRain, ExternalLink, Loader2, RefreshCw, UserMinus, ShieldAlert, CheckCircle2, AlertCircle } from "lucide-react";
-import { obtenerInscriptosSheet, obtenerPlantelSheet, registrarBajaSheet, type InscriptoSheet, type JugadorPlantelSheet } from "@/lib/sheets.functions";
+import { CloudRain, ExternalLink, Loader2, RefreshCw, UserMinus, ShieldAlert, Shuffle, Users } from "lucide-react";
+import { obtenerInscriptosSheet, obtenerPlantelSheet, registrarBajaSheet, type InscriptoSheet } from "@/lib/sheets.functions";
 import { SEDES, SEDE_LABELS, type Sede } from "@/lib/types";
+import { armarConvocatoriasPorSede, type SedeConvocatoria } from "@/lib/services/armadorService";
 
-interface InscripcionLocal {
+export interface InscripcionLocal {
   id: string;
   apodo: string;
   email: string;
@@ -24,9 +25,14 @@ export default function App() {
   const [sincronizando, setSincronizando] = useState(false);
   const [bajando, setBajando] = useState<string | null>(null);
 
-  // Estados de control local (Lluvia y Sedes canceladas)
+  // Controles de Cancha y Clima
   const [suspensionLluvia, setSuspensionLluvia] = useState(false);
   const [sedesCanceladas, setSedesCanceladas] = useState<Sede[]>([]);
+  const [canchaMojadaCanton, setCanchaMojadaCanton] = useState(false);
+  const [puertos10vs10, setPuertos10vs10] = useState(false);
+
+  // Resultado del armado
+  const [sedesArmadas, setSedesArmadas] = useState<Record<string, SedeConvocatoria>>({});
 
   const hoy = new Date().toISOString().slice(0, 10);
   const FORM_URL = "https://forms.gle/18-6FV5tk7gjSssBNUWCojRMrI4CYR18rfz3BmVUAZ3A";
@@ -51,7 +57,7 @@ export default function App() {
     void cargarDatosIniciales();
   }, []);
 
-  // MOTOR DE SINCRONIZACIÓN (Paso 1)
+  // Sincronización de Inscriptos y Pagos
   const sincronizarPlanilla = async () => {
     setSincronizando(true);
     try {
@@ -63,14 +69,12 @@ export default function App() {
       setInscriptosSheet(sheetData);
       setPlantel(plantelData);
 
-      // Mapear pagos desde el plantel por email
       const pagosMap = new Map<string, boolean>();
       plantelData.forEach(p => {
         if (p.email) pagosMap.set(p.email.toLowerCase().trim(), p.pago);
         if (p.email_alternativo) pagosMap.set(p.email_alternativo.toLowerCase().trim(), p.pago);
       });
 
-      // Construir la lista oficial de inscriptos de hoy
       const consolidadas: InscripcionLocal[] = sheetData.map((item, idx) => {
         const mail = item.email.toLowerCase().trim();
         const estaPagado = pagosMap.get(mail) ?? false;
@@ -89,6 +93,17 @@ export default function App() {
       });
 
       setInscripciones(consolidadas);
+
+      // Ejecutar armado automáticamente al sincronizar
+      const resultadoArmado = armarConvocatoriasPorSede(
+        consolidadas,
+        suspensionLluvia,
+        sedesCanceladas,
+        canchaMojadaCanton,
+        puertos10vs10
+      );
+      setSedesArmadas(resultadoArmado);
+
       alert(`✅ Sincronización exitosa: ${consolidadas.length} inscripto(s) procesado(s).`);
     } catch (err) {
       alert("❌ Error al sincronizar la planilla.");
@@ -97,6 +112,23 @@ export default function App() {
       setSincronizando(false);
     }
   };
+
+  // Re-ejecutar armado al cambiar switches de clima/sedes si ya hay inscriptos
+  const rearmarPartidos = () => {
+    if (inscripciones.length === 0) return;
+    const resultadoArmado = armarConvocatoriasPorSede(
+      inscripciones,
+      suspensionLluvia,
+      sedesCanceladas,
+      canchaMojadaCanton,
+      puertos10vs10
+    );
+    setSedesArmadas(resultadoArmado);
+  };
+
+  useEffect(() => {
+    rearmarPartidos();
+  }, [suspensionLluvia, sedesCanceladas, canchaMojadaCanton, puertos10vs10]);
 
   const toggleSedeCancelada = (sede: Sede) => {
     if (sedesCanceladas.includes(sede)) {
@@ -112,8 +144,10 @@ export default function App() {
     try {
       const res = await registrarBajaSheet(apodo, "Baja desde Panel Web");
       if (res.ok) {
-        alert(`Baja de ${apodo} registrada con éxito en el Google Sheet.`);
-        setInscripciones(inscripciones.filter(i => i.apodo !== apodo));
+        alert(`Baja de ${apodo} registrada con éxito.`);
+        const nuevas = inscripciones.filter(i => i.apodo !== apodo);
+        setInscripciones(nuevas);
+        setSedesArmadas(armarConvocatoriasPorSede(nuevas, suspensionLluvia, sedesCanceladas, canchaMojadaCanton, puertos10vs10));
       } else {
         alert(`Error al registrar baja: ${res.mensaje}`);
       }
@@ -125,12 +159,14 @@ export default function App() {
   };
 
   const toggleEstadoPagoLocal = (id: string) => {
-    setInscripciones(inscripciones.map(i => {
+    const nuevas = inscripciones.map(i => {
       if (i.id === id) {
-        return { ...i, estadoPago: i.estadoPago === "AL_DÍA" ? "DEBE" : "AL_DÍA" };
+        return { ...i, estadoPago: (i.estadoPago === "AL_DÍA" ? "DEBE" : "AL_DÍA") as "AL_DÍA" | "DEBE" };
       }
       return i;
-    }));
+    });
+    setInscripciones(nuevas);
+    setSedesArmadas(armarConvocatoriasPorSede(nuevas, suspensionLluvia, sedesCanceladas, canchaMojadaCanton, puertos10vs10));
   };
 
   return (
@@ -144,7 +180,7 @@ export default function App() {
               ⚽ Panel de Convocatorias · <span className="text-zinc-500 font-normal text-base">{hoy}</span>
             </h1>
             <span className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 w-fit">
-              🟢 Sincronización V18 Activa
+              🟢 Sistema V18 + Armador Activo
             </span>
           </div>
 
@@ -159,7 +195,6 @@ export default function App() {
               Abrir Formulario de Inscripción
             </a>
             
-            {/* BOTÓN PRINCIPAL DE SINCRONIZACIÓN (PASO 1) */}
             <button
               onClick={() => void sincronizarPlanilla()}
               disabled={sincronizando}
@@ -171,32 +206,50 @@ export default function App() {
           </div>
         </div>
 
-        {/* Panel de Controles (Lluvia y Sedes con San Matías y Puertos 2) */}
+        {/* Controles de Cancha y Clima (Incluye Puertos 2 y Cancha Mojada) */}
         <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200 space-y-4">
           <h2 className="text-base font-semibold text-zinc-800 flex items-center gap-2">
             <ShieldAlert className="size-5 text-amber-600" />
             Controles de Cancha y Clima
           </h2>
 
-          <div className="flex items-center justify-between rounded-lg border border-zinc-100 bg-zinc-50 p-4">
-            <div className="flex items-center gap-2">
-              <CloudRain className="size-5 text-blue-500" />
-              <div>
-                <p className="text-sm font-medium">Suspensión General por Lluvia</p>
-                <p className="text-xs text-zinc-500">Filtra automáticamente a quienes no juegan con agua.</p>
-              </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="flex items-center justify-between rounded-lg border border-zinc-100 bg-zinc-50 p-3">
+              <span className="text-sm font-medium flex items-center gap-2">
+                <CloudRain className="size-4 text-blue-500" /> Lluvia (Suspende)
+              </span>
+              <input
+                type="checkbox"
+                checked={suspensionLluvia}
+                onChange={(e) => setSuspensionLluvia(e.target.checked)}
+                className="size-5 rounded border-zinc-300 text-blue-600 cursor-pointer"
+              />
             </div>
-            <input
-              type="checkbox"
-              checked={suspensionLluvia}
-              onChange={(e) => setSuspensionLluvia(e.target.checked)}
-              className="size-5 rounded border-zinc-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-            />
+
+            <div className="flex items-center justify-between rounded-lg border border-zinc-100 bg-zinc-50 p-3">
+              <span className="text-sm font-medium">💧 Cancha Mojada Cantón (➔ Puertos 2)</span>
+              <input
+                type="checkbox"
+                checked={canchaMojadaCanton}
+                onChange={(e) => setCanchaMojadaCanton(e.target.checked)}
+                className="size-5 rounded border-zinc-300 text-blue-600 cursor-pointer"
+              />
+            </div>
+
+            <div className="flex items-center justify-between rounded-lg border border-zinc-100 bg-zinc-50 p-3 sm:col-span-2">
+              <span className="text-sm font-medium">🏟️ Puertos 10vs10 (Capacidad 20)</span>
+              <input
+                type="checkbox"
+                checked={puertos10vs10}
+                onChange={(e) => setPuertos10vs10(e.target.checked)}
+                className="size-5 rounded border-zinc-300 text-blue-600 cursor-pointer"
+              />
+            </div>
           </div>
 
           <div className="rounded-lg border border-zinc-100 bg-zinc-50 p-4 space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-              Sedes Habilitadas y Cancelaciones (San Matías y Puertos 2)
+              Sedes Habilitadas y Cancelaciones
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {SEDES.map((sede) => {
@@ -222,41 +275,94 @@ export default function App() {
           </div>
         </div>
 
-        {/* 1. INCRIPTOS CRUDOS EN LA PLANILLA */}
-        <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200">
-          <h2 className="text-base font-semibold text-zinc-800 mb-3">
-            Inscriptos en el Formulario ({inscriptosSheet.length})
-          </h2>
-          {cargando ? (
-            <p className="text-sm text-zinc-500 py-4 flex items-center gap-2">
-              <Loader2 className="size-4 animate-spin" /> Leyendo Google Sheets...
+        {/* 3. EQUIPOS ARMADOS POR SEDE */}
+        <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200 space-y-4">
+          <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+            <h2 className="text-base font-semibold text-zinc-800 flex items-center gap-2">
+              <Users className="size-5 text-emerald-600" />
+              Convocados Armados por Sede
+            </h2>
+            <button
+              onClick={rearmarPartidos}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-lg transition"
+            >
+              <Shuffle className="size-3.5" /> Recalcular Reparto
+            </button>
+          </div>
+
+          {Object.keys(sedesArmadas).length === 0 ? (
+            <p className="text-sm text-zinc-500 py-4 text-center">
+              Sincroniza la planilla para ver el armado automático de canchas.
             </p>
-          ) : inscriptosSheet.length === 0 ? (
-            <p className="text-sm text-zinc-500">No hay respuestas nuevas en el formulario.</p>
           ) : (
-            <div className="divide-y divide-zinc-100 max-h-60 overflow-y-auto">
-              {inscriptosSheet.map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between py-2 text-xs sm:text-sm">
-                  <span className="font-medium">{item.apodo || item.email}</span>
-                  <div className="flex items-center gap-2">
-                    {item.vip && <span className="bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded text-[10px] font-bold">VIP</span>}
-                    <span className="bg-zinc-100 px-2 py-0.5 rounded font-semibold text-zinc-700">{item.sede ?? item.turno}</span>
-                    {item.flexible && <span className="bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded text-[10px] font-bold">FLEX</span>}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {Object.values(sedesArmadas).map((sede) => (
+                <div key={sede.nombre} className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-bold text-zinc-800">
+                      {SEDE_LABELS[sede.nombre as Sede] || sede.nombre}
+                    </h3>
+                    <span className={`text-xs px-2 py-0.5 rounded font-bold ${
+                      sede.activa ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"
+                    }`}>
+                      {sede.activa ? `${sede.convocados.length} / ${sede.capacidad}` : "SUSPENDIDA"}
+                    </span>
                   </div>
+
+                  {!sede.activa ? (
+                    <p className="text-xs text-red-600 font-medium py-2">
+                      ❌ {sede.motivoSuspension || "Sede suspendida"}
+                    </p>
+                  ) : (
+                    <div className="space-y-2 text-xs">
+                      <div>
+                        <p className="font-semibold text-zinc-500 uppercase tracking-wider mb-1">Titulares ({sede.convocados.length})</p>
+                        {sede.convocados.length === 0 ? (
+                          <p className="text-zinc-400 italic">Sin jugadores asignados</p>
+                        ) : (
+                          <ul className="space-y-1">
+                            {sede.convocados.map((j, i) => (
+                              <li key={i} className="flex items-center justify-between bg-white px-2.5 py-1 rounded border border-zinc-200">
+                                <span className="font-medium">{j.apodo}</span>
+                                <div className="flex items-center gap-1">
+                                  {j.vip && <span className="text-[9px] bg-amber-100 text-amber-800 px-1 rounded font-bold">VIP</span>}
+                                  {j.flexible && <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1 rounded font-bold">FLEX</span>}
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+
+                      {sede.suplentes.length > 0 && (
+                        <div>
+                          <p className="font-semibold text-amber-600 uppercase tracking-wider mb-1">Suplentes ({sede.suplentes.length})</p>
+                          <ul className="space-y-1">
+                            {sede.suplentes.map((j, i) => (
+                              <li key={i} className="flex items-center justify-between bg-amber-50/50 px-2.5 py-1 rounded border border-amber-200 text-amber-900">
+                                <span className="font-medium">{j.apodo}</span>
+                                <span className="text-[9px] bg-amber-200 text-amber-800 px-1 rounded font-bold">SUPLENTE</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        {/* 2. ANOTADOS DE HOY (CONSOLIDADOS TRAS SINCRONIZAR) */}
+        {/* LISTADO DE ANOTADOS Y CONTROL DE PAGOS */}
         <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200">
           <h2 className="text-base font-semibold text-zinc-800 mb-3">
-            Anotados y Sincronizados de Hoy ({inscripciones.length})
+            Control General de Anotados ({inscripciones.length})
           </h2>
           {inscripciones.length === 0 ? (
             <p className="text-sm text-zinc-500 py-4 text-center">
-              Todavía no sincronizaste la planilla. Hacé clic en <span className="font-semibold text-emerald-600">&quot;Traer / Sincronizar Inscriptos&quot;</span> arriba.
+              Todavía no sincronizaste la planilla.
             </p>
           ) : (
             <div className="space-y-2">
@@ -270,7 +376,6 @@ export default function App() {
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
-                    {/* Botón de pago */}
                     <button
                       onClick={() => toggleEstadoPagoLocal(i.id)}
                       className={`px-2.5 py-1 rounded text-xs font-bold transition ${
@@ -282,7 +387,6 @@ export default function App() {
                       {i.estadoPago === "AL_DÍA" ? "✅ Al día" : "❌ Debe"}
                     </button>
 
-                    {/* Botón de baja */}
                     <button
                       onClick={() => void handleDarDeBaja(i.apodo)}
                       disabled={bajando === i.apodo}
