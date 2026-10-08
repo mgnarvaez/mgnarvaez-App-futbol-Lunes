@@ -55,15 +55,20 @@ export default function App() {
 
   const extraerPuntajesDeSolapas = (solapas: any) => {
     const puntajesFormateados: Record<string, number> = {};
-    if (solapas && solapas["BD puntajes"]) {
-      const filas = solapas["BD puntajes"].values || [];
-      filas.forEach((fila: any[]) => {
-        const email = fila[0]?.toString().toLowerCase().trim();
-        const puntaje = parseFloat(fila[1]?.toString().replace(",", "."));
-        if (email && !isNaN(puntaje)) {
-          puntajesFormateados[email] = puntaje;
-        }
-      });
+    try {
+      if (solapas && solapas["BD puntajes"]) {
+        const filas = solapas["BD puntajes"].values || [];
+        filas.forEach((fila: any[]) => {
+          if (!Array.isArray(fila)) return;
+          const email = (fila[0] || "").toString().toLowerCase().trim();
+          const puntaje = parseFloat((fila[1] || "").toString().replace(",", "."));
+          if (email && !isNaN(puntaje)) {
+            puntajesFormateados[email] = puntaje;
+          }
+        });
+      }
+    } catch (e) {
+      console.error("Error al extraer puntajes:", e);
     }
     setBdPuntajes(puntajesFormateados);
   };
@@ -72,16 +77,20 @@ export default function App() {
     setCargando(true);
     try {
       const resOrg = await ejecutarOrganizarSheet();
-      extraerPuntajesDeSolapas(resOrg.solapas);
+      if (resOrg && resOrg.solapas) {
+        extraerPuntajesDeSolapas(resOrg.solapas);
+      }
       
       const [sheetData, plantelData, matData] = await Promise.all([
-        leerInscriptos(resOrg.solapas ? { solapas: resOrg.solapas } : undefined),
+        leerInscriptos(resOrg?.solapas ? { solapas: resOrg.solapas } : undefined),
         obtenerPlantelSheet(),
-        obtenerMaterialesSheet()
+        obtenerMaterialesSheet().catch(() => ({ historial: [] }))
       ]);
-      setInscriptosSheet(sheetData);
-      setPlantel(plantelData);
-      if (matData && matData.historial) setHistorialMateriales(matData.historial);
+      setInscriptosSheet(sheetData || []);
+      setPlantel(plantelData || []);
+      if (matData && Array.isArray(matData.historial)) {
+        setHistorialMateriales(matData.historial);
+      }
     } catch (err) {
       console.error("Error al cargar datos:", err);
     } finally {
@@ -97,17 +106,21 @@ export default function App() {
     setSincronizando(true);
     try {
       const resOrg = await ejecutarOrganizarSheet();
-      extraerPuntajesDeSolapas(resOrg.solapas);
+      if (resOrg && resOrg.solapas) {
+        extraerPuntajesDeSolapas(resOrg.solapas);
+      }
 
       const [sheetData, plantelData, matData] = await Promise.all([
-        leerInscriptos(resOrg.solapas ? { solapas: resOrg.solapas } : undefined),
+        leerInscriptos(resOrg?.solapas ? { solapas: resOrg.solapas } : undefined),
         obtenerPlantelSheet(),
-        obtenerMaterialesSheet()
+        obtenerMaterialesSheet().catch(() => ({ historial: [] }))
       ]);
       
-      setInscriptosSheet(sheetData);
-      setPlantel(plantelData);
-      if (matData && matData.historial) setHistorialMateriales(matData.historial);
+      setInscriptosSheet(sheetData || []);
+      setPlantel(plantelData || []);
+      if (matData && Array.isArray(matData.historial)) {
+        setHistorialMateriales(matData.historial);
+      }
 
       const pagosMap = new Map<string, boolean>();
       plantelData.forEach(p => {
@@ -115,8 +128,8 @@ export default function App() {
         if (p.email_alternativo) pagosMap.set(p.email_alternativo.toLowerCase().trim(), p.pago);
       });
 
-      const consolidadas: InscripcionLocal[] = sheetData.map((item, idx) => {
-        const mail = item.email.toLowerCase().trim();
+      const consolidadas: InscripcionLocal[] = (sheetData || []).map((item, idx) => {
+        const mail = (item.email || "").toLowerCase().trim();
         const estaPagado = pagosMap.get(mail) ?? false;
         return {
           id: `${mail}-${idx}`,
@@ -249,8 +262,8 @@ export default function App() {
         setJugadorMat("");
         setJugadorSeleccionadoMat(null);
         setMaterialesSeleccionados([]);
-        const matData = await obtenerMaterialesSheet();
-        if (matData && matData.historial) setHistorialMateriales(matData.historial);
+        const matData = await obtenerMaterialesSheet().catch(() => ({ historial: [] }));
+        if (matData && Array.isArray(matData.historial)) setHistorialMateriales(matData.historial);
       } else {
         setMensajeMat({ tipo: 'error', texto: res.mensaje });
       }
@@ -271,7 +284,7 @@ export default function App() {
     return `https://api.whatsapp.com/send?text=${encodeURIComponent(msj)}`;
   };
 
-  const historialMatFiltrado = historialMateriales.filter((h) =>
+  const historialMatFiltrado = (historialMateriales || []).filter((h) =>
     h.jugador.toLowerCase().includes(busquedaMat.toLowerCase()) ||
     h.materiales.toLowerCase().includes(busquedaMat.toLowerCase()) ||
     (h.lote && h.lote.toLowerCase().includes(busquedaMat.toLowerCase()))
@@ -412,29 +425,35 @@ export default function App() {
               <p className="text-sm text-zinc-500 py-8 text-center flex items-center justify-center gap-2"><Loader2 className="size-5 animate-spin" /> Cargando base de datos...</p>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {plantelFiltrado.map((j, i) => (
-                  <div key={i} className="flex flex-col p-4 rounded-xl border border-zinc-200 bg-zinc-50 hover:bg-white transition shadow-sm space-y-3">
-                    <div className="flex justify-between items-start gap-2">
-                      <div className="min-w-0">
-                        <h3 className="font-bold text-zinc-900 truncate">{j.nombre}</h3>
-                        {j.apodo && <p className="text-sm font-medium text-zinc-600">"{j.apodo}"</p>}
+                {plantelFiltrado.map((j, i) => {
+                  const emailKey = (j.email || "").toLowerCase().trim();
+                  const emailAltKey = (j.email_alternativo || "").toLowerCase().trim();
+                  const puntajeJugador = bdPuntajes[emailKey] || bdPuntajes[emailAltKey];
+
+                  return (
+                    <div key={i} className="flex flex-col p-4 rounded-xl border border-zinc-200 bg-zinc-50 hover:bg-white transition shadow-sm space-y-3">
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="min-w-0">
+                          <h3 className="font-bold text-zinc-900 truncate">{j.nombre}</h3>
+                          {j.apodo && <p className="text-sm font-medium text-zinc-600">"{j.apodo}"</p>}
+                        </div>
+                        <span className={`text-[10px] px-2 py-1 rounded font-bold shrink-0 ${j.pago ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>{j.pago ? '✅ AL DÍA' : '❌ DEBE'}</span>
                       </div>
-                      <span className={`text-[10px] px-2 py-1 rounded font-bold shrink-0 ${j.pago ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>{j.pago ? '✅ AL DÍA' : '❌ DEBE'}</span>
-                    </div>
-                    <div className="space-y-1.5 text-xs text-zinc-600">
-                      <p className="flex items-center gap-1.5"><MapPin className="size-3.5 text-zinc-400" /> <span className="font-medium text-zinc-800">Barrio:</span> {j.barrio || "-"} {j.lote ? `(Lote ${j.lote})` : ""}</p>
-                      <p className="flex items-center gap-1.5"><Shield className="size-3.5 text-zinc-400" /> <span className="font-medium text-zinc-800">Puesto:</span> {j.puesto || "-"}</p>
-                      {bdPuntajes[j.email?.toLowerCase().trim()] && (
-                        <p className="flex items-center gap-1.5 text-emerald-700 font-semibold"><Star className="size-3.5" /> Nivel BD: {bdPuntajes[j.email?.toLowerCase().trim()]}</p>
+                      <div className="space-y-1.5 text-xs text-zinc-600">
+                        <p className="flex items-center gap-1.5"><MapPin className="size-3.5 text-zinc-400" /> <span className="font-medium text-zinc-800">Barrio:</span> {j.barrio || "-"} {j.lote ? `(Lote ${j.lote})` : ""}</p>
+                        <p className="flex items-center gap-1.5"><Shield className="size-3.5 text-zinc-400" /> <span className="font-medium text-zinc-800">Puesto:</span> {j.puesto || "-"}</p>
+                        {puntajeJugador !== undefined && (
+                          <p className="flex items-center gap-1.5 text-emerald-700 font-semibold"><Star className="size-3.5" /> Nivel BD: {puntajeJugador}</p>
+                        )}
+                      </div>
+                      {j.telefono && (
+                        <div className="pt-3 mt-auto border-t border-zinc-100">
+                          <a href={formatearLinkWhatsApp(j.telefono)} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#20bd5a] text-white px-3 py-2 rounded-lg text-xs font-bold transition shadow-sm w-full"><MessageCircle className="size-4" /> Enviar WhatsApp</a>
+                        </div>
                       )}
                     </div>
-                    {j.telefono && (
-                      <div className="pt-3 mt-auto border-t border-zinc-100">
-                        <a href={formatearLinkWhatsApp(j.telefono)} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#20bd5a] text-white px-3 py-2 rounded-lg text-xs font-bold transition shadow-sm w-full"><MessageCircle className="size-4" /> Enviar WhatsApp</a>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
