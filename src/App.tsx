@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { CloudRain, ExternalLink, Loader2, RefreshCw, UserMinus, ShieldAlert, Shuffle, Users } from "lucide-react";
-import { obtenerInscriptosSheet, obtenerPlantelSheet, registrarBajaSheet, type InscriptoSheet } from "@/lib/sheets.functions";
+import { CloudRain, ExternalLink, Loader2, RefreshCw, UserMinus, ShieldAlert, Shuffle, Users, Copy, Check } from "lucide-react";
+import { obtenerInscriptosSheet, obtenerPlantelSheet, registrarBajaSheet, type InscriptoSheet, type JugadorPlantelSheet } from "@/lib/sheets.functions";
 import { SEDES, SEDE_LABELS, type Sede } from "@/lib/types";
 import { armarConvocatoriasPorSede, type SedeConvocatoria } from "@/lib/services/armadorService";
 
@@ -24,6 +24,7 @@ export default function App() {
   const [cargando, setCargando] = useState(true);
   const [sincronizando, setSincronizando] = useState(false);
   const [bajando, setBajando] = useState<string | null>(null);
+  const [copiadoSede, setCopiadoSede] = useState<string | null>(null);
 
   // Controles de Cancha y Clima
   const [suspensionLluvia, setSuspensionLluvia] = useState(false);
@@ -57,7 +58,6 @@ export default function App() {
     void cargarDatosIniciales();
   }, []);
 
-  // Sincronización de Inscriptos y Pagos
   const sincronizarPlanilla = async () => {
     setSincronizando(true);
     try {
@@ -94,7 +94,6 @@ export default function App() {
 
       setInscripciones(consolidadas);
 
-      // Ejecutar armado automáticamente al sincronizar
       const resultadoArmado = armarConvocatoriasPorSede(
         consolidadas,
         suspensionLluvia,
@@ -113,7 +112,6 @@ export default function App() {
     }
   };
 
-  // Re-ejecutar armado al cambiar switches de clima/sedes si ya hay inscriptos
   const rearmarPartidos = () => {
     if (inscripciones.length === 0) return;
     const resultadoArmado = armarConvocatoriasPorSede(
@@ -169,6 +167,32 @@ export default function App() {
     setSedesArmadas(armarConvocatoriasPorSede(nuevas, suspensionLluvia, sedesCanceladas, canchaMojadaCanton, puertos10vs10));
   };
 
+  // FUNCIÓN PARA COPIAR A WHATSAPP
+  const copiarParaWhatsApp = (sede: SedeConvocatoria) => {
+    const nombreBonito = SEDE_LABELS[sede.nombre as Sede] || sede.nombre;
+    let texto = `⚽ *CONVOCATORIA: ${nombreBonito}* ⚽\n📅 Fecha: ${hoy}\n\n`;
+
+    if (!sede.activa) {
+      texto += `❌ *SEDE SUSPENDIDA*: ${sede.motivoSuspension || "No disponible"}\n`;
+    } else {
+      texto += `✅ *TITULARES (${sede.convocados.length}/${sede.capacidad})*:\n`;
+      sede.convocados.forEach((j, i) => {
+        texto += `${i + 1}. ${j.apodo}${j.vip ? " ⭐" : ""}\n`;
+      });
+
+      if (sede.suplentes.length > 0) {
+        texto += `\n⚠️ *SUPLENTES*:\n`;
+        sede.suplentes.forEach((j, i) => {
+          texto += `${i + 1}. ${j.apodo}\n`;
+        });
+      }
+    }
+
+    navigator.clipboard.writeText(texto);
+    setCopiadoSede(sede.nombre);
+    setTimeout(() => setCopiadoSede(null), 2500);
+  };
+
   return (
     <div className="min-h-screen bg-zinc-50 p-4 sm:p-6 text-zinc-900">
       <div className="mx-auto max-w-4xl space-y-6">
@@ -180,7 +204,7 @@ export default function App() {
               ⚽ Panel de Convocatorias · <span className="text-zinc-500 font-normal text-base">{hoy}</span>
             </h1>
             <span className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 w-fit">
-              🟢 Sistema V18 + Armador Activo
+              🟢 V18 + WhatsApp Copier
             </span>
           </div>
 
@@ -206,7 +230,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* Controles de Cancha y Clima (Incluye Puertos 2 y Cancha Mojada) */}
+        {/* Controles de Cancha y Clima */}
         <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200 space-y-4">
           <h2 className="text-base font-semibold text-zinc-800 flex items-center gap-2">
             <ShieldAlert className="size-5 text-amber-600" />
@@ -275,7 +299,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* 3. EQUIPOS ARMADOS POR SEDE */}
+        {/* EQUIPOS ARMADOS POR SEDE + BOTÓN WHATSAPP */}
         <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200 space-y-4">
           <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
             <h2 className="text-base font-semibold text-zinc-800 flex items-center gap-2">
@@ -302,11 +326,25 @@ export default function App() {
                     <h3 className="font-bold text-zinc-800">
                       {SEDE_LABELS[sede.nombre as Sede] || sede.nombre}
                     </h3>
-                    <span className={`text-xs px-2 py-0.5 rounded font-bold ${
-                      sede.activa ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"
-                    }`}>
-                      {sede.activa ? `${sede.convocados.length} / ${sede.capacidad}` : "SUSPENDIDA"}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => copiarParaWhatsApp(sede)}
+                        title="Copiar lista para WhatsApp"
+                        className={`inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg font-medium transition ${
+                          copiadoSede === sede.nombre
+                            ? "bg-emerald-600 text-white"
+                            : "bg-zinc-200 hover:bg-zinc-300 text-zinc-800"
+                        }`}
+                      >
+                        {copiadoSede === sede.nombre ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                        {copiadoSede === sede.nombre ? "¡Copiado!" : "WhatsApp"}
+                      </button>
+                      <span className={`text-xs px-2 py-0.5 rounded font-bold ${
+                        sede.activa ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"
+                      }`}>
+                        {sede.activa ? `${sede.convocados.length} / ${sede.capacidad}` : "SUSPENDIDA"}
+                      </span>
+                    </div>
                   </div>
 
                   {!sede.activa ? (
@@ -355,7 +393,7 @@ export default function App() {
           )}
         </div>
 
-        {/* LISTADO DE ANOTADOS Y CONTROL DE PAGOS */}
+        {/* CONTROL GENERAL DE ANOTADOS */}
         <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200">
           <h2 className="text-base font-semibold text-zinc-800 mb-3">
             Control General de Anotados ({inscripciones.length})
