@@ -11,10 +11,6 @@ export const SHEET_INSCRIPTOS_ID = "1b_JOQKHe6mz_9aVka90hKhEM3Gqaw9U6dR6iK_80TkU
 export const SHEET_PLANTEL_ID = "13_t_cbzP3F7Pbt1Apzto8i7WB2-QCLICP7D5fIUHaf0";
 export const SHEET_EQUIPOS_ID = "1vAkjAgb7A7glehP2N2IUhph4ILCHEtELdv9_Ckic8to";
 
-export const TAB_VIP = "Ingresos VIP";
-export const TAB_GENERAL = "Ingresos General";
-export const TAB_PLANTEL = "Respuestas de formulario 1";
-
 export interface InscriptoSheet {
   timestamp: string;
   fecha: string;
@@ -42,19 +38,6 @@ export interface JugadorPlantelSheet {
   lote: string;
   puesto: string;
   pago: boolean;
-}
-
-export interface JugadorEquipo {
-  nombre: string;
-  puesto: string;
-}
-
-export interface EquipoSede {
-  sede: Sede;
-  puntajeBlancos: string;
-  puntajeNegros: string;
-  blancos: JugadorEquipo[];
-  negros: JugadorEquipo[];
 }
 
 export interface RegistroMaterialSheet {
@@ -92,9 +75,6 @@ function esNombreJugadorValido(nombre: string): boolean {
   return true;
 }
 
-// =========================================================================
-// 1. LEER EXCLUSIVAMENTE INGRESOS VIP E INGRESOS GENERAL (USADO POR EL PANEL)
-// =========================================================================
 export async function leerInscriptos(): Promise<InscriptoSheet[]> {
   try {
     const res = await fetch(APPS_SCRIPT_INSCRIPTOS_URL);
@@ -107,7 +87,6 @@ export async function leerInscriptos(): Promise<InscriptoSheet[]> {
       (solapas.bajas || []).map((b: string) => b.toLowerCase().trim())
     );
 
-    // 1.1 Inscriptos VIP (Pestaña "Ingresos VIP")
     const vipPlayers = solapas.respuestas_vip?.players || solapas["Ingresos VIP"]?.players || [];
     for (const p of vipPlayers) {
       const email = (p.email || "").toString().toLowerCase().trim();
@@ -133,7 +112,6 @@ export async function leerInscriptos(): Promise<InscriptoSheet[]> {
       }
     }
 
-    // 1.2 Inscriptos General (Pestaña "Ingresos General")
     const genPlayers = solapas.respuestas_4?.players || solapas["Ingresos General"]?.players || [];
     for (const p of genPlayers) {
       const email = (p.email || "").toString().toLowerCase().trim();
@@ -170,56 +148,6 @@ export async function obtenerInscriptosSheet(): Promise<InscriptoSheet[]> {
   return leerInscriptos();
 }
 
-// =========================================================================
-// 2. LEER LAS SOLAPAS RESULTANTES DEL SCRIPT ("20 hs CANTON", "21:15 hs PUERTOS", "20:00 hs SM")
-// USADO EXCLUSIVAMENTE POR CONVOCADOS SHEET
-// =========================================================================
-export interface ConvocadosPorSedeSheet {
-  canton: InscriptoSheet[];
-  sm: InscriptoSheet[];
-  puertos: InscriptoSheet[];
-}
-
-export async function obtenerConvocadosOrganizadosSheet(): Promise<ConvocadosPorSedeSheet> {
-  try {
-    const res = await fetch(APPS_SCRIPT_INSCRIPTOS_URL);
-    if (!res.ok) return { canton: [], sm: [], puertos: [] };
-    const data = await res.json();
-    const solapas = data?.solapas || {};
-
-    const procesarSolapa = (playersArr: any[], defaultSede: Sede): InscriptoSheet[] => {
-      if (!Array.isArray(playersArr)) return [];
-      return playersArr
-        .filter((p) => esNombreJugadorValido(p.apodo || p.nombre))
-        .map((p) => ({
-          timestamp: "",
-          fecha: "",
-          hora: "",
-          email: p.email || "",
-          turno: defaultSede,
-          sede: defaultSede,
-          flexible: Boolean(p.isFlexible || p.rawFlex),
-          apodo: p.apodo || p.nombre || "",
-          juega_con_lluvia: true,
-          vip: Boolean(p.isVip || p.vip),
-          estado: p.estado || "CONVOCADO",
-        }));
-    };
-
-    return {
-      canton: procesarSolapa(solapas.canton?.players || solapas["20 hs CANTON"]?.players, "CANTON"),
-      sm: procesarSolapa(solapas.SM?.players || solapas.sm?.players || solapas["20:00 hs SM"]?.players, "SM"),
-      puertos: procesarSolapa(solapas.puertos?.players || solapas["21:15 hs PUERTOS"]?.players, "PUERTOS"),
-    };
-  } catch (error) {
-    console.error("Error al leer convocados organizados:", error);
-    return { canton: [], sm: [], puertos: [] };
-  }
-}
-
-// =========================================================================
-// 3. FUNCIONES DE PLANTEL, EQUIPOS Y OPERACIONES
-// =========================================================================
 function parsearFecha(valor: string): Date | null {
   if (!valor) return null;
   const v = valor.trim();
@@ -300,54 +228,6 @@ export async function obtenerPlantelSheet(): Promise<JugadorPlantelSheet[]> {
   return leerPlantel();
 }
 
-export async function leerEquiposArmados(): Promise<EquipoSede[]> {
-  try {
-    const res = await fetch(`${APPS_SCRIPT_ARMADO_URL}?action=read_equipos`);
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data?.equipos || [];
-  } catch (error) {
-    console.error("Error al leer equipos armados:", error);
-    return [];
-  }
-}
-
-export async function obtenerEquiposArmadosSheet(): Promise<EquipoSede[]> {
-  return leerEquiposArmados();
-}
-
-export async function ejecutarArmadoEquipos(params?: {
-  suspensionLluvia?: string;
-  suspensionOtra?: string;
-}): Promise<{ ok: boolean; mensaje: string }> {
-  try {
-    const res = await fetch(APPS_SCRIPT_ARMADO_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8",
-      },
-      body: JSON.stringify({ action: "balance_teams", params: params || {} }),
-    });
-
-    const data = await res.json();
-    if (data.status === "success" || data.success) {
-      return { ok: true, mensaje: "¡Equipos armados con éxito en la planilla!" };
-    } else {
-      return { ok: false, mensaje: data.message || "Error al ejecutar el armado." };
-    }
-  } catch (error) {
-    console.error("Error al ejecutar armado de equipos:", error);
-    return { ok: false, mensaje: "Error de conexión con la planilla de armado." };
-  }
-}
-
-export async function correrArmadoEquipos(params?: {
-  suspensionLluvia?: string;
-  suspensionOtra?: string;
-}): Promise<{ ok: boolean; mensaje: string }> {
-  return ejecutarArmadoEquipos(params);
-}
-
 export async function registrarBajaSheet(
   apodo: string,
   motivo: string = "Baja desde App Web"
@@ -367,15 +247,9 @@ export async function registrarBajaSheet(
 
     const data = await res.json();
     if (data.success || data.status === "success") {
-      return {
-        ok: true,
-        mensaje: `Baja de ${apodo} registrada con éxito en la planilla.`,
-      };
+      return { ok: true, mensaje: `Baja de ${apodo} registrada con éxito en la planilla.` };
     } else {
-      return {
-        ok: false,
-        mensaje: data.error || data.message || "Error al registrar la baja en la planilla.",
-      };
+      return { ok: false, mensaje: data.error || data.message || "Error al registrar la baja." };
     }
   } catch (error) {
     console.error("Error al registrar baja:", error);
@@ -383,35 +257,6 @@ export async function registrarBajaSheet(
   }
 }
 
-export async function ejecutarOrganizarConvocadosSheet(): Promise<{
-  ok: boolean;
-  mensaje: string;
-}> {
-  try {
-    const baseUrl = APPS_SCRIPT_INSCRIPTOS_URL.replace("?action=read_solapas", "");
-    const res = await fetch(baseUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8",
-      },
-      body: JSON.stringify({ action: "ejecutar_organizar" }),
-    });
-
-    const data = await res.json();
-    if (data.success || data.status === "success") {
-      return { ok: true, mensaje: "¡Convocatorias reorganizadas en la planilla de Google!" };
-    } else {
-      return { ok: false, mensaje: data.error || data.message || "Error al organizar convocados." };
-    }
-  } catch (error) {
-    console.error("Error al ejecutar organizar convocados:", error);
-    return { ok: false, mensaje: "Error de conexión con la planilla." };
-  }
-}
-
-// =========================================================================
-// 4. FUNCIONES PARA REGISTRO DE MATERIALES
-// =========================================================================
 export async function obtenerMaterialesSheet(): Promise<{
   historial: RegistroMaterialSheet[];
   ranking: RankingMaterialSheet[];
@@ -438,10 +283,7 @@ export async function registrarMaterialesSheet(
     const payload = {
       jugador,
       materiales,
-      params: {
-        jugador,
-        materiales,
-      },
+      params: { jugador, materiales },
     };
 
     const res = await fetch(APPS_SCRIPT_PLANTEL_URL, {
@@ -459,5 +301,36 @@ export async function registrarMaterialesSheet(
   } catch (error) {
     console.error("Error al registrar materiales:", error);
     return { ok: false, mensaje: "Error de conexión al registrar materiales." };
+  }
+}
+
+// Nueva función para leer los puntajes desde la solapa "BD puntajes" de inscriptos/organizador
+export async function obtenerPuntajesBdSheet(): Promise<Record<string, { ataque: string; defensa: string; equipo: string; general: string }>> {
+  try {
+    const res = await fetch(APPS_SCRIPT_INSCRIPTOS_URL);
+    if (!res.ok) return {};
+    const data = await res.json();
+    const solapas = data?.solapas || {};
+    const puntajesMap: Record<string, { ataque: string; defensa: string; equipo: string; general: string }> = {};
+
+    if (solapas["BD puntajes"]) {
+      const filas = solapas["BD puntajes"].values || [];
+      filas.forEach((fila: any[]) => {
+        if (!Array.isArray(fila)) return;
+        const email = (fila[0] || "").toString().toLowerCase().trim();
+        if (email) {
+          puntajesMap[email] = {
+            ataque: (fila[1] !== undefined ? fila[1] : "-").toString(),
+            defensa: (fila[2] !== undefined ? fila[2] : "-").toString(),
+            equipo: (fila[3] !== undefined ? fila[3] : "-").toString(),
+            general: (fila[4] !== undefined ? fila[4] : fila[1] || "-").toString(),
+          };
+        }
+      });
+    }
+    return puntajesMap;
+  } catch (error) {
+    console.error("Error al leer BD puntajes:", error);
+    return {};
   }
 }
