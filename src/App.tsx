@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { CloudRain, ExternalLink, Loader2, RefreshCw, UserMinus, ShieldAlert, Shuffle, Users, Copy, Check, Shield, MessageCircle, MapPin, Package, Search, Calendar, Star, Send, History, AlertCircle, User } from "lucide-react";
+import { CloudRain, ExternalLink, Loader2, RefreshCw, UserMinus, ShieldAlert, Shuffle, Users, Copy, Check, Shield, MessageCircle, MapPin, Package, Search, Star, Send, History, AlertCircle, User, CheckCircle2 } from "lucide-react";
 import { ejecutarOrganizarSheet, leerInscriptos, obtenerPlantelSheet, registrarBajaSheet, obtenerMaterialesSheet, registrarMaterialesSheet, type InscriptoSheet, type JugadorPlantelSheet, type RegistroMaterialSheet } from "@/lib/sheets.functions";
 import { SEDES, SEDE_LABELS, type Sede, type InscripcionLocal } from "@/lib/types";
 import { armarConvocatoriasPorSede, type SedeConvocatoria } from "@/lib/services/armadorService";
@@ -25,16 +25,13 @@ export default function App() {
   const [bajando, setBajando] = useState<string | null>(null);
   const [copiadoSede, setCopiadoSede] = useState<string | null>(null);
 
-  // Buscador del plantel
   const [busquedaPlantel, setBusquedaPlantel] = useState("");
 
-  // Clima y Sedes
   const [suspensionLluvia, setSuspensionLluvia] = useState(false);
   const [sedesCanceladas, setSedesCanceladas] = useState<Sede[]>([]);
   const [canchaMojadaCanton, setCanchaMojadaCanton] = useState(false);
   const [puertos10vs10, setPuertos10vs10] = useState(false);
 
-  // Armado
   const [sedesArmadas, setSedesArmadas] = useState<Record<string, SedeConvocatoria>>({});
 
   // ================= ESTADO MATERIALES =================
@@ -93,9 +90,9 @@ export default function App() {
       }
       
       const [sheetData, plantelData, matData] = await Promise.all([
-        leerInscriptos(resOrg?.solapas ? { solapas: resOrg.solapas } : undefined),
+        leerInscriptos(),
         obtenerPlantelSheet(),
-        obtenerMaterialesSheet().catch(() => ({ historial: [] }))
+        obtenerMaterialesSheet().catch(() => ({ historial: [], ranking: [] }))
       ]);
       setInscriptosSheet(sheetData || []);
       setPlantel(plantelData || []);
@@ -122,9 +119,9 @@ export default function App() {
       }
 
       const [sheetData, plantelData, matData] = await Promise.all([
-        leerInscriptos(resOrg?.solapas ? { solapas: resOrg.solapas } : undefined),
+        leerInscriptos(),
         obtenerPlantelSheet(),
-        obtenerMaterialesSheet().catch(() => ({ historial: [] }))
+        obtenerMaterialesSheet().catch(() => ({ historial: [], ranking: [] }))
       ]);
       
       setInscriptosSheet(sheetData || []);
@@ -208,8 +205,6 @@ export default function App() {
 
   const copiarParaWhatsApp = (sede: SedeConvocatoria) => {
     const nombreBonito = SEDE_LABELS[sede.nombre as Sede] || sede.nombre;
-    
-    // Mapeador simple de puntajes numéricos generales para el servicio de equipos
     const puntajesGeneralesMap: Record<string, number> = {};
     Object.keys(bdPuntajes).forEach(k => {
       puntajesGeneralesMap[k] = parseFloat(bdPuntajes[k].general) || 5;
@@ -279,7 +274,7 @@ export default function App() {
         setJugadorMat("");
         setJugadorSeleccionadoMat(null);
         setMaterialesSeleccionados([]);
-        const matData = await obtenerMaterialesSheet().catch(() => ({ historial: [] }));
+        const matData = await obtenerMaterialesSheet().catch(() => ({ historial: [], ranking: [] }));
         if (matData && Array.isArray(matData.historial)) setHistorialMateriales(matData.historial);
       } else {
         setMensajeMat({ tipo: 'error', texto: res.mensaje });
