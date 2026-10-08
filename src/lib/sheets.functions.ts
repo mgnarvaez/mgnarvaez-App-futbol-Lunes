@@ -47,66 +47,46 @@ function detectarSede(turno: string): Sede | null {
   return null;
 }
 
-export async function leerInscriptos(): Promise<InscriptoSheet[]> {
+export async function leerInscriptos(datosDirectos?: any): Promise<InscriptoSheet[]> {
   try {
-    const res = await fetch(APPS_SCRIPT_INSCRIPTOS_URL);
-    if (!res.ok) return [];
-    const data = await res.json();
+    let data = datosDirectos;
+    if (!data) {
+      const res = await fetch(APPS_SCRIPT_INSCRIPTOS_URL);
+      if (!res.ok) return [];
+      data = await res.json();
+    }
     const filas: InscriptoSheet[] = [];
-
     const solapas = data?.solapas || {};
 
-    const vipPlayers = solapas.respuestas_vip?.players || solapas["Ingresos VIP"]?.players || [];
-    for (const p of vipPlayers) {
-      const email = (p.email || "").toString().toLowerCase().trim();
-      const apodo = (p.apodo || p.rawNombre || "").toString().trim();
-      if (apodo || email) {
-        const rawTs = (p.rawTimestamp || "").toString();
-        const parts = rawTs.split(" ");
-        const f = parts[0] || rawTs;
-        const h = parts[1] || "";
-        const pref = (p.rawPref || p.turno || "").toString().trim();
+    const procesarJugadores = (lista: any[], esVip: boolean) => {
+      for (const p of lista) {
+        const email = (p.email || "").toString().toLowerCase().trim();
+        const apodo = (p.apodo || p.rawNombre || "").toString().trim();
+        if (apodo || email) {
+          const rawTs = (p.rawTimestamp || "").toString();
+          const parts = rawTs.split(" ");
+          const f = parts[0] || rawTs;
+          const h = parts[1] || "";
+          const pref = (p.rawPref || p.turno || "").toString().trim();
 
-        filas.push({
-          timestamp: rawTs,
-          fecha: f,
-          hora: h,
-          email,
-          turno: pref,
-          sede: detectarSede(pref),
-          flexible: Boolean(p.rawFlex),
-          apodo,
-          juega_con_lluvia: Boolean(p.rawPlayIfRains),
-          vip: true,
-        });
+          filas.push({
+            timestamp: rawTs,
+            fecha: f,
+            hora: h,
+            email,
+            turno: pref,
+            sede: detectarSede(pref),
+            flexible: Boolean(p.rawFlex),
+            apodo,
+            juega_con_lluvia: Boolean(p.rawPlayIfRains),
+            vip: esVip,
+          });
+        }
       }
-    }
+    };
 
-    const genPlayers = solapas.respuestas_4?.players || solapas["Ingresos General"]?.players || [];
-    for (const p of genPlayers) {
-      const email = (p.email || "").toString().toLowerCase().trim();
-      const apodo = (p.apodo || p.rawNombre || "").toString().trim();
-      if (apodo || email) {
-        const rawTs = (p.rawTimestamp || "").toString();
-        const parts = rawTs.split(" ");
-        const f = parts[0] || rawTs;
-        const h = parts[1] || "";
-        const pref = (p.rawPref || p.turno || "").toString().trim();
-
-        filas.push({
-          timestamp: rawTs,
-          fecha: f,
-          hora: h,
-          email,
-          turno: pref,
-          sede: detectarSede(pref),
-          flexible: Boolean(p.rawFlex),
-          apodo,
-          juega_con_lluvia: Boolean(p.rawPlayIfRains),
-          vip: false,
-        });
-      }
-    }
+    procesarJugadores(solapas.respuestas_vip?.players || solapas["Ingresos VIP"]?.players || [], true);
+    procesarJugadores(solapas.respuestas_4?.players || solapas["Ingresos General"]?.players || [], false);
 
     return filas;
   } catch (error) {
@@ -115,8 +95,19 @@ export async function leerInscriptos(): Promise<InscriptoSheet[]> {
   }
 }
 
-export async function obtenerInscriptosSheet(): Promise<InscriptoSheet[]> {
-  return leerInscriptos();
+export async function ejecutarOrganizarSheet(): Promise<{ ok: boolean; solapas?: any; mensaje?: string }> {
+  try {
+    const res = await fetch(APPS_SCRIPT_POST_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "ejecutar_organizar" }),
+    });
+    if (!res.ok) return { ok: false, mensaje: "Error HTTP " + res.status };
+    const data = await res.json();
+    return { ok: data.success !== false, solapas: data.solapas, mensaje: data.error || "OK" };
+  } catch (error) {
+    return { ok: false, mensaje: error instanceof Error ? error.message : "Error desconocido" };
+  }
 }
 
 export async function registrarBajaSheet(apodo: string, motivo: string = "Baja registrada desde App Web"): Promise<{ ok: boolean; mensaje: string }> {
@@ -124,10 +115,7 @@ export async function registrarBajaSheet(apodo: string, motivo: string = "Baja r
     const res = await fetch(APPS_SCRIPT_POST_URL, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({
-        action: "registrar_baja",
-        params: { apodo, motivo }
-      }),
+      body: JSON.stringify({ action: "registrar_baja", params: { apodo, motivo } }),
     });
     if (!res.ok) return { ok: false, mensaje: "Error HTTP " + res.status };
     const data = await res.json();
