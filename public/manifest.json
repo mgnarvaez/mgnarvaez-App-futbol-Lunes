@@ -1,25 +1,21 @@
 {
   "short_name": "FútbolApp",
   "name": "Fútbol Manager",
-  "id": "/",
   "start_url": "/",
   "scope": "/",
+  "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#16a34a",
-  "display": "standalone",
-  "orientation": "portrait-primary",
   "icons": [
     {
       "src": "/icon.png",
       "type": "image/png",
-      "sizes": "192x192",
-      "purpose": "any maskable"
+      "sizes": "192x192"
     },
     {
       "src": "/icon.png",
       "type": "image/png",
-      "sizes": "512x512",
-      "purpose": "any maskable"
+      "sizes": "512x512"
     }
   ]
 }
