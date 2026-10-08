@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { CloudRain, ExternalLink, Loader2, RefreshCw, UserMinus, ShieldAlert, Shuffle, Users, Copy, Check, Shield, MessageCircle, Phone, MapPin } from "lucide-react";
+import { CloudRain, ExternalLink, Loader2, RefreshCw, UserMinus, ShieldAlert, Shuffle, Users, Copy, Check, Shield, MessageCircle, MapPin, Package } from "lucide-react";
 import { ejecutarOrganizarSheet, leerInscriptos, obtenerPlantelSheet, registrarBajaSheet, type InscriptoSheet, type JugadorPlantelSheet } from "@/lib/sheets.functions";
 import { SEDES, SEDE_LABELS, type Sede, type InscripcionLocal } from "@/lib/types";
 import { armarConvocatoriasPorSede, type SedeConvocatoria } from "@/lib/services/armadorService";
@@ -11,26 +11,47 @@ export default function App() {
   const [inscriptosSheet, setInscriptosSheet] = useState<InscriptoSheet[]>([]);
   const [plantel, setPlantel] = useState<JugadorPlantelSheet[]>([]);
   const [inscripciones, setInscripciones] = useState<InscripcionLocal[]>([]);
+  const [bdPuntajes, setBdPuntajes] = useState<Record<string, number>>({});
   
   const [cargando, setCargando] = useState(true);
   const [sincronizando, setSincronizando] = useState(false);
   const [bajando, setBajando] = useState<string | null>(null);
   const [copiadoSede, setCopiadoSede] = useState<string | null>(null);
 
+  // Clima y Sedes
   const [suspensionLluvia, setSuspensionLluvia] = useState(false);
   const [sedesCanceladas, setSedesCanceladas] = useState<Sede[]>([]);
   const [canchaMojadaCanton, setCanchaMojadaCanton] = useState(false);
   const [puertos10vs10, setPuertos10vs10] = useState(false);
 
+  // Armado y Materiales
   const [sedesArmadas, setSedesArmadas] = useState<Record<string, SedeConvocatoria>>({});
+  const [materiales, setMateriales] = useState<Record<string, { pelotas: string, pecheras: string }>>({});
 
   const hoy = new Date().toISOString().slice(0, 10);
   const FORM_URL = "https://docs.google.com/forms/d/18-6FV5tk7gjSssBNUWCojRMrI4CYR18rfz3BmVUAZ3A/viewform";
+
+  const extraerPuntajesDeSolapas = (solapas: any) => {
+    const puntajesFormateados: Record<string, number> = {};
+    if (solapas && solapas["BD puntajes"]) {
+      const filas = solapas["BD puntajes"].values || [];
+      filas.forEach((fila: any[]) => {
+        const email = fila[0]?.toString().toLowerCase().trim();
+        const puntaje = parseFloat(fila[1]?.toString().replace(",", "."));
+        if (email && !isNaN(puntaje)) {
+          puntajesFormateados[email] = puntaje;
+        }
+      });
+    }
+    setBdPuntajes(puntajesFormateados);
+  };
 
   const cargarDatosIniciales = async () => {
     setCargando(true);
     try {
       const resOrg = await ejecutarOrganizarSheet();
+      extraerPuntajesDeSolapas(resOrg.solapas);
+      
       const [sheetData, plantelData] = await Promise.all([
         leerInscriptos(resOrg.solapas ? { solapas: resOrg.solapas } : undefined),
         obtenerPlantelSheet()
@@ -52,6 +73,8 @@ export default function App() {
     setSincronizando(true);
     try {
       const resOrg = await ejecutarOrganizarSheet();
+      extraerPuntajesDeSolapas(resOrg.solapas);
+
       const [sheetData, plantelData] = await Promise.all([
         leerInscriptos(resOrg.solapas ? { solapas: resOrg.solapas } : undefined),
         obtenerPlantelSheet()
@@ -69,7 +92,6 @@ export default function App() {
       const consolidadas: InscripcionLocal[] = sheetData.map((item, idx) => {
         const mail = item.email.toLowerCase().trim();
         const estaPagado = pagosMap.get(mail) ?? false;
-
         return {
           id: `${mail}-${idx}`,
           apodo: item.apodo || item.email,
@@ -84,20 +106,11 @@ export default function App() {
       });
 
       setInscripciones(consolidadas);
-
-      const resultadoArmado = armarConvocatoriasPorSede(
-        consolidadas,
-        suspensionLluvia,
-        sedesCanceladas,
-        canchaMojadaCanton,
-        puertos10vs10
-      );
+      const resultadoArmado = armarConvocatoriasPorSede(consolidadas, suspensionLluvia, sedesCanceladas, canchaMojadaCanton, puertos10vs10);
       setSedesArmadas(resultadoArmado);
-
-      alert(`✅ Sincronización exitosa: ${consolidadas.length} inscripto(s) actualizados.`);
+      alert(`✅ Sincronización exitosa: ${consolidadas.length} inscripto(s) procesados.`);
     } catch (err) {
       alert("❌ Error al sincronizar la planilla.");
-      console.error(err);
     } finally {
       setSincronizando(false);
     }
@@ -105,13 +118,7 @@ export default function App() {
 
   const rearmarPartidos = () => {
     if (inscripciones.length === 0) return;
-    const resultadoArmado = armarConvocatoriasPorSede(
-      inscripciones,
-      suspensionLluvia,
-      sedesCanceladas,
-      canchaMojadaCanton,
-      puertos10vs10
-    );
+    const resultadoArmado = armarConvocatoriasPorSede(inscripciones, suspensionLluvia, sedesCanceladas, canchaMojadaCanton, puertos10vs10);
     setSedesArmadas(resultadoArmado);
   };
 
@@ -120,11 +127,7 @@ export default function App() {
   }, [suspensionLluvia, sedesCanceladas, canchaMojadaCanton, puertos10vs10]);
 
   const toggleSedeCancelada = (sede: Sede) => {
-    if (sedesCanceladas.includes(sede)) {
-      setSedesCanceladas(sedesCanceladas.filter((s) => s !== sede));
-    } else {
-      setSedesCanceladas([...sedesCanceladas, sede]);
-    }
+    setSedesCanceladas(prev => prev.includes(sede) ? prev.filter(s => s !== sede) : [...prev, sede]);
   };
 
   const handleDarDeBaja = async (apodo: string) => {
@@ -133,7 +136,7 @@ export default function App() {
     try {
       const res = await registrarBajaSheet(apodo, "Baja desde Panel Web");
       if (res.ok) {
-        alert(`Baja de ${apodo} registrada con éxito.`);
+        alert(`Baja de ${apodo} registrada.`);
         const nuevas = inscripciones.filter(i => i.apodo !== apodo);
         setInscripciones(nuevas);
         setSedesArmadas(armarConvocatoriasPorSede(nuevas, suspensionLluvia, sedesCanceladas, canchaMojadaCanton, puertos10vs10));
@@ -148,42 +151,46 @@ export default function App() {
   };
 
   const toggleEstadoPagoLocal = (id: string) => {
-    const nuevas = inscripciones.map(i => {
-      if (i.id === id) {
-        return { ...i, estadoPago: (i.estadoPago === "AL_DÍA" ? "DEBE" : "AL_DÍA") as "AL_DÍA" | "DEBE" };
-      }
-      return i;
-    });
+    const nuevas = inscripciones.map(i => i.id === id ? { ...i, estadoPago: (i.estadoPago === "AL_DÍA" ? "DEBE" : "AL_DÍA") as "AL_DÍA" | "DEBE" } : i);
     setInscripciones(nuevas);
     setSedesArmadas(armarConvocatoriasPorSede(nuevas, suspensionLluvia, sedesCanceladas, canchaMojadaCanton, puertos10vs10));
   };
 
+  const actualizarMaterial = (sedeNombre: string, tipo: "pelotas" | "pecheras", valor: string) => {
+    setMateriales(prev => ({
+      ...prev,
+      [sedeNombre]: { ...prev[sedeNombre], [tipo]: valor }
+    }));
+  };
+
   const copiarParaWhatsApp = (sede: SedeConvocatoria) => {
     const nombreBonito = SEDE_LABELS[sede.nombre as Sede] || sede.nombre;
+    const mat = materiales[sede.nombre] || { pelotas: "", pecheras: "" };
+    
     let texto = `⚽ *CONVOCATORIA: ${nombreBonito}* ⚽\n📅 Fecha: ${hoy}\n\n`;
 
     if (!sede.activa) {
       texto += `❌ *SEDE SUSPENDIDA*: ${sede.motivoSuspension || "No disponible"}\n`;
     } else {
-      const equipos = dividirEnEquipos(sede.convocados);
+      const equipos = dividirEnEquipos(sede.convocados, bdPuntajes);
       
       texto += `✅ *TITULARES (${sede.convocados.length}/${sede.capacidad})*:\n`;
-      sede.convocados.forEach((j, i) => {
-        texto += `${i + 1}. ${j.apodo}${j.vip ? " ⭐" : ""}\n`;
-      });
+      sede.convocados.forEach((j, i) => { texto += `${i + 1}. ${j.apodo}${j.vip ? " ⭐" : ""}\n`; });
 
-      texto += `\n⚪ *EQUIPO BLANCOS*:\n`;
+      texto += `\n⚪ *EQUIPO BLANCOS* (Promedio: ${equipos.promedioBlancos}):\n`;
       equipos.blancos.forEach(j => { texto += `- ${j.apodo}\n`; });
 
-      texto += `\n⬛ *EQUIPO NEGROS*:\n`;
+      texto += `\n⬛ *EQUIPO NEGROS* (Promedio: ${equipos.promedioNegros}):\n`;
       equipos.negros.forEach(j => { texto += `- ${j.apodo}\n`; });
 
       if (sede.suplentes.length > 0) {
         texto += `\n⚠️ *SUPLENTES*:\n`;
-        sede.suplentes.forEach((j, i) => {
-          texto += `${i + 1}. ${j.apodo}\n`;
-        });
+        sede.suplentes.forEach((j, i) => { texto += `${i + 1}. ${j.apodo}\n`; });
       }
+
+      texto += `\n📦 *MATERIALES*:\n`;
+      texto += `⚽ Pelotas: ${mat.pelotas || "Sin asignar"}\n`;
+      texto += `🎽 Pecheras: ${mat.pecheras || "Sin asignar"}\n`;
     }
 
     navigator.clipboard.writeText(texto);
@@ -202,218 +209,111 @@ export default function App() {
     <div className="min-h-screen bg-zinc-50 p-4 sm:p-6 text-zinc-900">
       <div className="mx-auto max-w-5xl space-y-6">
         
-        {/* CABECERA Y NAVEGACIÓN */}
+        {/* NAVEGACIÓN */}
         <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-zinc-100 pb-4">
             <div>
               <h1 className="text-xl font-bold flex items-center gap-2">
                 ⚽ Sistema de Fútbol · <span className="text-zinc-500 font-normal text-base">{hoy}</span>
               </h1>
-              <p className="text-sm text-zinc-500 mt-1">Gestión de convocatorias y base de datos del plantel.</p>
             </div>
-            
             <div className="flex items-center gap-2 bg-zinc-100 p-1 rounded-lg">
-              <button
-                onClick={() => setVistaActiva("panel")}
-                className={`px-4 py-2 text-sm font-semibold rounded-md transition ${
-                  vistaActiva === "panel" ? "bg-white shadow-sm text-zinc-900" : "text-zinc-500 hover:text-zinc-700"
-                }`}
-              >
-                Convocatorias
-              </button>
-              <button
-                onClick={() => setVistaActiva("plantel")}
-                className={`px-4 py-2 text-sm font-semibold rounded-md transition ${
-                  vistaActiva === "plantel" ? "bg-white shadow-sm text-zinc-900" : "text-zinc-500 hover:text-zinc-700"
-                }`}
-              >
-                Base de Jugadores
-              </button>
+              <button onClick={() => setVistaActiva("panel")} className={`px-4 py-2 text-sm font-semibold rounded-md transition ${vistaActiva === "panel" ? "bg-white shadow-sm text-zinc-900" : "text-zinc-500 hover:text-zinc-700"}`}>Convocatorias</button>
+              <button onClick={() => setVistaActiva("plantel")} className={`px-4 py-2 text-sm font-semibold rounded-md transition ${vistaActiva === "plantel" ? "bg-white shadow-sm text-zinc-900" : "text-zinc-500 hover:text-zinc-700"}`}>Base de Jugadores</button>
             </div>
           </div>
         </div>
 
-        {/* VISTA 1: PANEL DE CONVOCATORIAS */}
+        {/* VISTA 1: PANEL */}
         {vistaActiva === "panel" && (
           <div className="space-y-6">
             <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200 flex flex-wrap gap-3">
-              <a
-                href={FORM_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 transition"
-              >
-                <ExternalLink className="size-4" />
-                Abrir Formulario
-              </a>
-              
-              <button
-                onClick={() => void sincronizarPlanilla()}
-                disabled={sincronizando}
-                className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition disabled:opacity-50 shadow-sm"
-              >
-                {sincronizando ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-                Traer / Sincronizar Inscriptos
+              <a href={FORM_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 transition"><ExternalLink className="size-4" /> Abrir Formulario</a>
+              <button onClick={() => void sincronizarPlanilla()} disabled={sincronizando} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition disabled:opacity-50 shadow-sm">
+                {sincronizando ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />} Sincronizar Inscriptos
               </button>
             </div>
 
             <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200 space-y-4">
-              <h2 className="text-base font-semibold text-zinc-800 flex items-center gap-2">
-                <ShieldAlert className="size-5 text-amber-600" />
-                Controles de Cancha y Clima
-              </h2>
-
+              <h2 className="text-base font-semibold text-zinc-800 flex items-center gap-2"><ShieldAlert className="size-5 text-amber-600" /> Controles de Cancha y Clima</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="flex items-center justify-between rounded-lg border border-zinc-100 bg-zinc-50 p-3">
-                  <span className="text-sm font-medium flex items-center gap-2">
-                    <CloudRain className="size-4 text-blue-500" /> Lluvia (Suspende)
-                  </span>
-                  <input
-                    type="checkbox"
-                    checked={suspensionLluvia}
-                    onChange={(e) => setSuspensionLluvia(e.target.checked)}
-                    className="size-5 rounded border-zinc-300 text-blue-600 cursor-pointer"
-                  />
-                </div>
-
-                <div className="flex items-center justify-between rounded-lg border border-zinc-100 bg-zinc-50 p-3">
-                  <span className="text-sm font-medium">💧 Cancha Mojada Cantón (➔ Puertos 2)</span>
-                  <input
-                    type="checkbox"
-                    checked={canchaMojadaCanton}
-                    onChange={(e) => setCanchaMojadaCanton(e.target.checked)}
-                    className="size-5 rounded border-zinc-300 text-blue-600 cursor-pointer"
-                  />
-                </div>
-
-                <div className="flex items-center justify-between rounded-lg border border-zinc-100 bg-zinc-50 p-3 sm:col-span-2">
-                  <span className="text-sm font-medium">🏟️ Puertos 10vs10 (Capacidad 20)</span>
-                  <input
-                    type="checkbox"
-                    checked={puertos10vs10}
-                    onChange={(e) => setPuertos10vs10(e.target.checked)}
-                    className="size-5 rounded border-zinc-300 text-blue-600 cursor-pointer"
-                  />
-                </div>
+                <div className="flex items-center justify-between rounded-lg border border-zinc-100 bg-zinc-50 p-3"><span className="text-sm font-medium flex items-center gap-2"><CloudRain className="size-4 text-blue-500" /> Lluvia (Suspende)</span><input type="checkbox" checked={suspensionLluvia} onChange={(e) => setSuspensionLluvia(e.target.checked)} className="size-5 rounded border-zinc-300 text-blue-600 cursor-pointer" /></div>
+                <div className="flex items-center justify-between rounded-lg border border-zinc-100 bg-zinc-50 p-3"><span className="text-sm font-medium">💧 Cancha Mojada Cantón (➔ Puertos 2)</span><input type="checkbox" checked={canchaMojadaCanton} onChange={(e) => setCanchaMojadaCanton(e.target.checked)} className="size-5 rounded border-zinc-300 text-blue-600 cursor-pointer" /></div>
+                <div className="flex items-center justify-between rounded-lg border border-zinc-100 bg-zinc-50 p-3 sm:col-span-2"><span className="text-sm font-medium">🏟️ Puertos 10vs10 (Capacidad 20)</span><input type="checkbox" checked={puertos10vs10} onChange={(e) => setPuertos10vs10(e.target.checked)} className="size-5 rounded border-zinc-300 text-blue-600 cursor-pointer" /></div>
               </div>
-
-              <div className="rounded-lg border border-zinc-100 bg-zinc-50 p-4 space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                  Sedes Habilitadas y Cancelaciones
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {SEDES.map((sede) => {
-                    const cancelada = sedesCanceladas.includes(sede);
-                    return (
-                      <button
-                        key={sede}
-                        onClick={() => toggleSedeCancelada(sede)}
-                        className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm font-medium transition ${
-                          cancelada
-                            ? "border-red-200 bg-red-50 text-red-700"
-                            : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-100"
-                        }`}
-                      >
-                        <span>{SEDE_LABELS[sede]}</span>
-                        <span className="text-xs px-2 py-0.5 rounded font-bold">
-                          {cancelada ? "❌ Cancelada" : "✅ Activa"}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                {SEDES.map((sede) => {
+                  const cancelada = sedesCanceladas.includes(sede);
+                  return <button key={sede} onClick={() => toggleSedeCancelada(sede)} className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm font-medium transition ${cancelada ? "border-red-200 bg-red-50 text-red-700" : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-100"}`}><span>{SEDE_LABELS[sede]}</span><span className="text-xs px-2 py-0.5 rounded font-bold">{cancelada ? "❌ Cancelada" : "✅ Activa"}</span></button>
+                })}
               </div>
             </div>
 
             <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200 space-y-4">
               <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
-                <h2 className="text-base font-semibold text-zinc-800 flex items-center gap-2">
-                  <Users className="size-5 text-emerald-600" />
-                  Equipos Armados (Blancos vs. Negros)
-                </h2>
-                <button
-                  onClick={rearmarPartidos}
-                  className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-lg transition"
-                >
-                  <Shuffle className="size-3.5" /> Recalcular Reparto
-                </button>
+                <h2 className="text-base font-semibold text-zinc-800 flex items-center gap-2"><Users className="size-5 text-emerald-600" /> Equipos Armados y Materiales</h2>
+                <button onClick={rearmarPartidos} className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-lg transition"><Shuffle className="size-3.5" /> Recalcular</button>
               </div>
 
               {Object.keys(sedesArmadas).length === 0 ? (
-                <p className="text-sm text-zinc-500 py-4 text-center">
-                  Sincroniza la planilla para ver el armado automático de equipos.
-                </p>
+                <p className="text-sm text-zinc-500 py-4 text-center">Sincroniza la planilla para ver el armado.</p>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-6">
                   {Object.values(sedesArmadas).map((sede) => {
-                    const equipos = dividirEnEquipos(sede.convocados);
+                    const equipos = dividirEnEquipos(sede.convocados, bdPuntajes);
+                    const mat = materiales[sede.nombre] || { pelotas: "", pecheras: "" };
                     return (
-                      <div key={sede.nombre} className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 space-y-3">
+                      <div key={sede.nombre} className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 space-y-4">
                         <div className="flex items-center justify-between">
-                          <h3 className="font-bold text-zinc-800">
-                            {SEDE_LABELS[sede.nombre as Sede] || sede.nombre}
-                          </h3>
+                          <h3 className="font-bold text-zinc-800 text-lg">{SEDE_LABELS[sede.nombre as Sede] || sede.nombre}</h3>
                           <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => copiarParaWhatsApp(sede)}
-                              title="Copiar lista y equipos para WhatsApp"
-                              className={`inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg font-medium transition ${
-                                copiadoSede === sede.nombre
-                                  ? "bg-emerald-600 text-white"
-                                  : "bg-zinc-200 hover:bg-zinc-300 text-zinc-800"
-                              }`}
-                            >
-                              {copiadoSede === sede.nombre ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-                              {copiadoSede === sede.nombre ? "¡Copiado!" : "WhatsApp"}
+                            <button onClick={() => copiarParaWhatsApp(sede)} className={`inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg font-bold transition ${copiadoSede === sede.nombre ? "bg-emerald-600 text-white" : "bg-zinc-200 hover:bg-zinc-300 text-zinc-800"}`}>
+                              {copiadoSede === sede.nombre ? <Check className="size-4" /> : <Copy className="size-4" />} {copiadoSede === sede.nombre ? "¡Copiado!" : "WhatsApp"}
                             </button>
-                            <span className={`text-xs px-2 py-0.5 rounded font-bold ${
-                              sede.activa ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"
-                            }`}>
+                            <span className={`text-xs px-2 py-1 rounded font-bold ${sede.activa ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"}`}>
                               {sede.activa ? `${sede.convocados.length} / ${sede.capacidad}` : "SUSPENDIDA"}
                             </span>
                           </div>
                         </div>
 
-                        {!sede.activa ? (
-                          <p className="text-xs text-red-600 font-medium py-2">
-                            ❌ {sede.motivoSuspension || "Sede suspendida"}
-                          </p>
-                        ) : (
-                          <div className="space-y-3 text-xs">
-                            <div className="grid grid-cols-2 gap-2">
-                              <div className="rounded-lg bg-white p-2.5 border border-zinc-200 space-y-1">
-                                <p className="font-bold text-zinc-700 flex items-center gap-1 border-b pb-1">
-                                  <Shield className="size-3 text-zinc-400" /> Blancos ({equipos.blancos.length})
-                                </p>
-                                {equipos.blancos.map((j, i) => (
-                                  <p key={i} className="truncate text-zinc-600">• {j.apodo}</p>
-                                ))}
+                        {sede.activa && (
+                          <>
+                            {/* Materiales */}
+                            <div className="flex flex-col sm:flex-row gap-3 bg-white p-3 rounded-lg border border-zinc-200">
+                              <div className="flex-1 space-y-1">
+                                <label className="text-xs font-bold text-zinc-600 flex items-center gap-1"><Package className="size-3" /> Pelotas</label>
+                                <select className="w-full text-sm border-zinc-200 rounded p-1.5" value={mat.pelotas} onChange={(e) => actualizarMaterial(sede.nombre, "pelotas", e.target.value)}>
+                                  <option value="">Seleccionar responsable...</option>
+                                  {sede.convocados.map(j => <option key={j.id} value={j.apodo}>{j.apodo}</option>)}
+                                </select>
                               </div>
-
-                              <div className="rounded-lg bg-zinc-900 text-zinc-100 p-2.5 border border-zinc-800 space-y-1">
-                                <p className="font-bold text-zinc-200 flex items-center gap-1 border-b border-zinc-800 pb-1">
-                                  <Shield className="size-3 text-zinc-400" /> Negros ({equipos.negros.length})
-                                </p>
-                                {equipos.negros.map((j, i) => (
-                                  <p key={i} className="truncate text-zinc-300">• {j.apodo}</p>
-                                ))}
+                              <div className="flex-1 space-y-1">
+                                <label className="text-xs font-bold text-zinc-600 flex items-center gap-1"><Package className="size-3" /> Pecheras</label>
+                                <select className="w-full text-sm border-zinc-200 rounded p-1.5" value={mat.pecheras} onChange={(e) => actualizarMaterial(sede.nombre, "pecheras", e.target.value)}>
+                                  <option value="">Seleccionar responsable...</option>
+                                  {sede.convocados.map(j => <option key={j.id} value={j.apodo}>{j.apodo}</option>)}
+                                </select>
                               </div>
                             </div>
 
-                            {sede.suplentes.length > 0 && (
-                              <div>
-                                <p className="font-semibold text-amber-600 uppercase tracking-wider mb-1">Suplentes ({sede.suplentes.length})</p>
-                                <ul className="space-y-1">
-                                  {sede.suplentes.map((j, i) => (
-                                    <li key={i} className="flex items-center justify-between bg-amber-50/50 px-2.5 py-1 rounded border border-amber-200 text-amber-900">
-                                      <span className="font-medium">{j.apodo}</span>
-                                      <span className="text-[9px] bg-amber-200 text-amber-800 px-1 rounded font-bold">SUPLENTE</span>
-                                    </li>
-                                  ))}
-                                </ul>
+                            {/* Equipos */}
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="rounded-lg bg-white p-3 border border-zinc-200">
+                                <p className="font-bold text-zinc-700 flex items-center justify-between border-b pb-2 mb-2">
+                                  <span className="flex items-center gap-1"><Shield className="size-4" /> Blancos</span>
+                                  <span className="text-[10px] bg-zinc-100 px-1.5 py-0.5 rounded">Prom: {equipos.promedioBlancos}</span>
+                                </p>
+                                <div className="space-y-1">{equipos.blancos.map((j, i) => <p key={i} className="text-sm text-zinc-600">• {j.apodo}</p>)}</div>
                               </div>
-                            )}
-                          </div>
+                              <div className="rounded-lg bg-zinc-900 text-zinc-100 p-3 border border-zinc-800">
+                                <p className="font-bold text-zinc-200 flex items-center justify-between border-b border-zinc-700 pb-2 mb-2">
+                                  <span className="flex items-center gap-1"><Shield className="size-4" /> Negros</span>
+                                  <span className="text-[10px] bg-zinc-800 px-1.5 py-0.5 rounded">Prom: {equipos.promedioNegros}</span>
+                                </p>
+                                <div className="space-y-1">{equipos.negros.map((j, i) => <p key={i} className="text-sm text-zinc-300">• {j.apodo}</p>)}</div>
+                              </div>
+                            </div>
+                          </>
                         )}
                       </div>
                     );
@@ -421,98 +321,48 @@ export default function App() {
                 </div>
               )}
             </div>
-
+            
+            {/* Control de pagos y bajas */}
             <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200">
-              <h2 className="text-base font-semibold text-zinc-800 mb-3">
-                Control General de Anotados ({inscripciones.length})
-              </h2>
-              {inscripciones.length === 0 ? (
-                <p className="text-sm text-zinc-500 py-4 text-center">
-                  Todavía no sincronizaste la planilla.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {inscripciones.map((i) => (
-                    <div key={i.id} className="flex flex-wrap items-center justify-between rounded-lg bg-zinc-50 border border-zinc-200 px-3 py-2 text-sm gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="font-semibold truncate">{i.apodo}</span>
-                        {i.vip && <span className="bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded text-[10px] font-bold">VIP</span>}
-                        <span className="text-xs bg-white border border-zinc-200 px-2 py-0.5 rounded font-medium">{i.sede}</span>
-                        {i.flexible && <span className="text-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded text-[10px] font-bold">FLEX</span>}
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          onClick={() => toggleEstadoPagoLocal(i.id)}
-                          className={`px-2.5 py-1 rounded text-xs font-bold transition ${
-                            i.estadoPago === "AL_DÍA"
-                              ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
-                              : "bg-red-100 text-red-800 hover:bg-red-200"
-                          }`}
-                        >
-                          {i.estadoPago === "AL_DÍA" ? "✅ Al día" : "❌ Debe"}
-                        </button>
-
-                        <button
-                          onClick={() => void handleDarDeBaja(i.apodo)}
-                          disabled={bajando === i.apodo}
-                          className="inline-flex items-center gap-1 rounded bg-red-50 border border-red-200 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-100 transition disabled:opacity-50"
-                        >
-                          {bajando === i.apodo ? <Loader2 className="size-3 animate-spin" /> : <UserMinus className="size-3" />}
-                          Bajar
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+              <h2 className="text-base font-semibold text-zinc-800 mb-3">Anotados y Pagos ({inscripciones.length})</h2>
+              {inscripciones.map((i) => (
+                <div key={i.id} className="flex flex-wrap items-center justify-between rounded-lg bg-zinc-50 border border-zinc-200 px-3 py-2 text-sm gap-2 mb-2">
+                  <div className="flex items-center gap-2"><span className="font-semibold">{i.apodo}</span><span className="text-xs bg-white border px-2 py-0.5 rounded">{i.sede}</span></div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button onClick={() => toggleEstadoPagoLocal(i.id)} className={`px-2.5 py-1 rounded text-xs font-bold ${i.estadoPago === "AL_DÍA" ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"}`}>{i.estadoPago === "AL_DÍA" ? "✅ Al día" : "❌ Debe"}</button>
+                    <button onClick={() => void handleDarDeBaja(i.apodo)} disabled={bajando === i.apodo} className="inline-flex items-center gap-1 rounded bg-red-50 border border-red-200 px-2.5 py-1 text-xs font-medium text-red-700">{bajando === i.apodo ? <Loader2 className="size-3 animate-spin" /> : <UserMinus className="size-3" />} Bajar</button>
+                  </div>
                 </div>
-              )}
+              ))}
             </div>
           </div>
         )}
 
-        {/* VISTA 2: BASE DE DATOS DE JUGADORES */}
+        {/* VISTA 2: PLANTEL */}
         {vistaActiva === "plantel" && (
           <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200 space-y-4">
-            <h2 className="text-lg font-bold text-zinc-800 flex items-center gap-2 border-b border-zinc-100 pb-4">
-              <Users className="size-5 text-blue-600" /> Directorio del Plantel ({plantel.length})
-            </h2>
-            
-            {cargando ? (
-              <p className="text-sm text-zinc-500 py-4 flex items-center gap-2">
-                <Loader2 className="size-4 animate-spin" /> Cargando base de datos...
-              </p>
-            ) : plantel.length === 0 ? (
-              <p className="text-sm text-zinc-500 py-4">No se encontraron jugadores en la hoja Plantel.</p>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {plantel.map((j, i) => (
-                  <div key={i} className="flex items-start justify-between p-4 rounded-xl border border-zinc-200 bg-zinc-50/50 hover:bg-white transition shadow-sm">
-                    <div className="space-y-1 min-w-0">
-                      <p className="font-bold text-zinc-900 truncate">{j.nombre} {j.apodo ? `"${j.apodo}"` : ""}</p>
-                      <p className="text-xs text-zinc-500 flex items-center gap-1">
-                        <MapPin className="size-3" /> {j.barrio || "Sin barrio"} {j.lote ? `(${j.lote})` : ""}
-                      </p>
-                      <p className="text-xs text-zinc-500">Puesto: <span className="font-medium text-zinc-700">{j.puesto || "No especificado"}</span></p>
-                    </div>
-                    
-                    {j.telefono && (
-                      <a
-                        href={formatearLinkWhatsApp(j.telefono)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="shrink-0 flex items-center gap-1.5 bg-[#25D366] hover:bg-[#20bd5a] text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-sm"
-                      >
-                        <MessageCircle className="size-4" />
-                        WhatsApp
-                      </a>
+            <h2 className="text-lg font-bold text-zinc-800 flex items-center gap-2 border-b border-zinc-100 pb-4"><Users className="size-5 text-blue-600" /> Directorio del Plantel ({plantel.length})</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {plantel.map((j, i) => (
+                <div key={i} className="flex items-start justify-between p-4 rounded-xl border border-zinc-200 bg-zinc-50 hover:bg-white transition shadow-sm">
+                  <div className="space-y-1 min-w-0">
+                    <p className="font-bold text-zinc-900 truncate">{j.nombre} {j.apodo ? `"${j.apodo}"` : ""}</p>
+                    <p className="text-xs text-zinc-500 flex items-center gap-1"><MapPin className="size-3" /> {j.barrio || "Sin barrio"}</p>
+                    <p className="text-xs text-zinc-500">Puesto: <span className="font-medium text-zinc-700">{j.puesto || "No especificado"}</span></p>
+                    {bdPuntajes[j.email?.toLowerCase().trim()] && (
+                       <p className="text-xs font-semibold text-emerald-700 mt-1">Nivel BD: {bdPuntajes[j.email?.toLowerCase().trim()]}</p>
                     )}
                   </div>
-                ))}
-              </div>
-            )}
+                  {j.telefono && (
+                    <a href={formatearLinkWhatsApp(j.telefono)} target="_blank" rel="noopener noreferrer" className="shrink-0 flex items-center gap-1.5 bg-[#25D366] hover:bg-[#20bd5a] text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-sm">
+                      <MessageCircle className="size-4" /> WhatsApp
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         )}
-
       </div>
     </div>
   );
