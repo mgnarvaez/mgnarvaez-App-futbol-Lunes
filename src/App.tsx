@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { CloudRain, ExternalLink, Loader2, RefreshCw, UserMinus, ShieldAlert, Shuffle, Users, Copy, Check, Shield, MessageCircle, MapPin, Package } from "lucide-react";
-import { ejecutarOrganizarSheet, leerInscriptos, obtenerPlantelSheet, registrarBajaSheet, type InscriptoSheet, type JugadorPlantelSheet } from "@/lib/sheets.functions";
+import { CloudRain, ExternalLink, Loader2, RefreshCw, UserMinus, ShieldAlert, Shuffle, Users, Copy, Check, Shield, MessageCircle, MapPin, Package, Search, Calendar, Star, Send, History, AlertCircle } from "lucide-react";
+import { ejecutarOrganizarSheet, leerInscriptos, obtenerPlantelSheet, registrarBajaSheet, obtenerMaterialesSheet, registrarMaterialesSheet, type InscriptoSheet, type JugadorPlantelSheet, type RegistroMaterialSheet } from "@/lib/sheets.functions";
 import { SEDES, SEDE_LABELS, type Sede, type InscripcionLocal } from "@/lib/types";
 import { armarConvocatoriasPorSede, type SedeConvocatoria } from "@/lib/services/armadorService";
 import { dividirEnEquipos } from "@/lib/services/equiposService";
 
 export default function App() {
-  const [vistaActiva, setVistaActiva] = useState<"panel" | "plantel">("panel");
+  const [vistaActiva, setVistaActiva] = useState<"panel" | "plantel" | "materiales">("panel");
   
   const [inscriptosSheet, setInscriptosSheet] = useState<InscriptoSheet[]>([]);
   const [plantel, setPlantel] = useState<JugadorPlantelSheet[]>([]);
@@ -18,15 +18,37 @@ export default function App() {
   const [bajando, setBajando] = useState<string | null>(null);
   const [copiadoSede, setCopiadoSede] = useState<string | null>(null);
 
+  // Buscador del plantel
+  const [busquedaPlantel, setBusquedaPlantel] = useState("");
+
   // Clima y Sedes
   const [suspensionLluvia, setSuspensionLluvia] = useState(false);
   const [sedesCanceladas, setSedesCanceladas] = useState<Sede[]>([]);
   const [canchaMojadaCanton, setCanchaMojadaCanton] = useState(false);
   const [puertos10vs10, setPuertos10vs10] = useState(false);
 
-  // Armado y Materiales
+  // Armado
   const [sedesArmadas, setSedesArmadas] = useState<Record<string, SedeConvocatoria>>({});
-  const [materiales, setMateriales] = useState<Record<string, { pelotas: string, pecheras: string }>>({});
+
+  // ================= ESTADO MATERIALES =================
+  const [historialMateriales, setHistorialMateriales] = useState<RegistroMaterialSheet[]>([]);
+  const [jugadorMat, setJugadorMat] = useState("");
+  const [jugadorSeleccionadoMat, setJugadorSeleccionadoMat] = useState<JugadorPlantelSheet | null>(null);
+  const [materialesSeleccionados, setMaterialesSeleccionados] = useState<string[]>([]);
+  const [mostrarSugerenciasMat, setMostrarSugerenciasMat] = useState(false);
+  const [busquedaMat, setBusquedaMat] = useState("");
+  const [loadingGuardarMat, setLoadingGuardarMat] = useState(false);
+  const [mensajeMat, setMensajeMat] = useState<{ tipo: 'error' | 'exito', texto: string } | null>(null);
+
+  const OPCIONES_MATERIALES = [
+    { id: "Amarillas", label: "🟨 Pecheras Amarillas" },
+    { id: "Azules", label: "🟦 Pecheras Azules" },
+    { id: "Rojas", label: "🟥 Pecheras Rojas" },
+    { id: "Naranjas", label: "🟧 Pecheras Naranjas" },
+    { id: "Verdes", label: "🟩 Pecheras Verdes" },
+    { id: "Pelota", label: "⚽ Pelota" },
+  ];
+  const LINK_INSCRIPCION_VIP = "https://forms.gle/AvMwDfZ68FSVhACN8";
 
   const hoy = new Date().toISOString().slice(0, 10);
   const FORM_URL = "https://docs.google.com/forms/d/18-6FV5tk7gjSssBNUWCojRMrI4CYR18rfz3BmVUAZ3A/viewform";
@@ -52,12 +74,14 @@ export default function App() {
       const resOrg = await ejecutarOrganizarSheet();
       extraerPuntajesDeSolapas(resOrg.solapas);
       
-      const [sheetData, plantelData] = await Promise.all([
+      const [sheetData, plantelData, matData] = await Promise.all([
         leerInscriptos(resOrg.solapas ? { solapas: resOrg.solapas } : undefined),
-        obtenerPlantelSheet()
+        obtenerPlantelSheet(),
+        obtenerMaterialesSheet()
       ]);
       setInscriptosSheet(sheetData);
       setPlantel(plantelData);
+      if (matData && matData.historial) setHistorialMateriales(matData.historial);
     } catch (err) {
       console.error("Error al cargar datos:", err);
     } finally {
@@ -75,13 +99,15 @@ export default function App() {
       const resOrg = await ejecutarOrganizarSheet();
       extraerPuntajesDeSolapas(resOrg.solapas);
 
-      const [sheetData, plantelData] = await Promise.all([
+      const [sheetData, plantelData, matData] = await Promise.all([
         leerInscriptos(resOrg.solapas ? { solapas: resOrg.solapas } : undefined),
-        obtenerPlantelSheet()
+        obtenerPlantelSheet(),
+        obtenerMaterialesSheet()
       ]);
       
       setInscriptosSheet(sheetData);
       setPlantel(plantelData);
+      if (matData && matData.historial) setHistorialMateriales(matData.historial);
 
       const pagosMap = new Map<string, boolean>();
       plantelData.forEach(p => {
@@ -156,16 +182,8 @@ export default function App() {
     setSedesArmadas(armarConvocatoriasPorSede(nuevas, suspensionLluvia, sedesCanceladas, canchaMojadaCanton, puertos10vs10));
   };
 
-  const actualizarMaterial = (sedeNombre: string, tipo: "pelotas" | "pecheras", valor: string) => {
-    setMateriales(prev => ({
-      ...prev,
-      [sedeNombre]: { ...prev[sedeNombre], [tipo]: valor }
-    }));
-  };
-
   const copiarParaWhatsApp = (sede: SedeConvocatoria) => {
     const nombreBonito = SEDE_LABELS[sede.nombre as Sede] || sede.nombre;
-    const mat = materiales[sede.nombre] || { pelotas: "", pecheras: "" };
     
     let texto = `⚽ *CONVOCATORIA: ${nombreBonito}* ⚽\n📅 Fecha: ${hoy}\n\n`;
 
@@ -187,10 +205,6 @@ export default function App() {
         texto += `\n⚠️ *SUPLENTES*:\n`;
         sede.suplentes.forEach((j, i) => { texto += `${i + 1}. ${j.apodo}\n`; });
       }
-
-      texto += `\n📦 *MATERIALES*:\n`;
-      texto += `⚽ Pelotas: ${mat.pelotas || "Sin asignar"}\n`;
-      texto += `🎽 Pecheras: ${mat.pecheras || "Sin asignar"}\n`;
     }
 
     navigator.clipboard.writeText(texto);
@@ -205,9 +219,73 @@ export default function App() {
     return `https://wa.me/${numeroFinal}`;
   };
 
+  // ================= FUNCIONES DE MATERIALES =================
+  const jugadoresFiltradosMat = plantel.filter((p) => {
+    if (!jugadorMat.trim()) return false;
+    const q = jugadorMat.toLowerCase();
+    const apodo = (p.apodo || "").toLowerCase();
+    const nombre = (p.nombre || "").toLowerCase();
+    const lote = (p.lote || "").toLowerCase();
+    return apodo.includes(q) || nombre.includes(q) || lote.includes(q);
+  });
+
+  const toggleMaterial = (item: string) => {
+    setMaterialesSeleccionados((prev) => prev.includes(item) ? prev.filter((m) => m !== item) : [...prev, item]);
+  };
+
+  const handleSubmitMat = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!jugadorMat.trim()) { setMensajeMat({ tipo: 'error', texto: "Por favor seleccioná un jugador del plantel." }); return; }
+    if (materialesSeleccionados.length === 0) { setMensajeMat({ tipo: 'error', texto: "Seleccioná al menos un material entregado." }); return; }
+
+    setLoadingGuardarMat(true);
+    setMensajeMat(null);
+
+    try {
+      const nombreFinal = jugadorSeleccionadoMat ? (jugadorSeleccionadoMat.apodo || jugadorSeleccionadoMat.nombre || "") : jugadorMat.trim();
+      const res = await registrarMaterialesSheet(nombreFinal, materialesSeleccionados);
+      if (res.ok) {
+        setMensajeMat({ tipo: 'exito', texto: `Materiales asignados a ${nombreFinal} con éxito.` });
+        setJugadorMat("");
+        setJugadorSeleccionadoMat(null);
+        setMaterialesSeleccionados([]);
+        const matData = await obtenerMaterialesSheet();
+        if (matData && matData.historial) setHistorialMateriales(matData.historial);
+      } else {
+        setMensajeMat({ tipo: 'error', texto: res.mensaje });
+      }
+    } catch (err) {
+      setMensajeMat({ tipo: 'error', texto: "Error de comunicación con la base de datos." });
+    } finally {
+      setLoadingGuardarMat(false);
+    }
+  };
+
+  const armarLinkWhatsappVIP = (item: RegistroMaterialSheet) => {
+    const msj = `Hola ${item.jugador}! Recordá que tenés prestado: ${item.materiales}. Acordate de llevarlo al próximo partido. Aca tenes el link para anotarte en cualquier momento antes de lunes y asegurarte participacion: ${LINK_INSCRIPCION_VIP}`;
+    
+    const pEncontrado = plantel.find(p => (p.apodo && p.apodo.toLowerCase() === item.jugador.toLowerCase()) || (p.nombre && p.nombre.toLowerCase() === item.jugador.toLowerCase()));
+    const numTel = pEncontrado ? formatearLinkWhatsApp(pEncontrado.telefono).replace("https://wa.me/", "") : "";
+
+    if (numTel && numTel !== "#") return `https://api.whatsapp.com/send?phone=${numTel}&text=${encodeURIComponent(msj)}`;
+    return `https://api.whatsapp.com/send?text=${encodeURIComponent(msj)}`;
+  };
+
+  const historialMatFiltrado = historialMateriales.filter((h) =>
+    h.jugador.toLowerCase().includes(busquedaMat.toLowerCase()) ||
+    h.materiales.toLowerCase().includes(busquedaMat.toLowerCase()) ||
+    (h.lote && h.lote.toLowerCase().includes(busquedaMat.toLowerCase()))
+  );
+
+  const plantelFiltrado = plantel.filter(j => {
+    if (!busquedaPlantel) return true;
+    const termino = busquedaPlantel.toLowerCase();
+    return ((j.nombre && j.nombre.toLowerCase().includes(termino)) || (j.apodo && j.apodo.toLowerCase().includes(termino)) || (j.barrio && j.barrio.toLowerCase().includes(termino)) || (j.puesto && j.puesto.toLowerCase().includes(termino)) || (j.email && j.email.toLowerCase().includes(termino)));
+  });
+
   return (
     <div className="min-h-screen bg-zinc-50 p-4 sm:p-6 text-zinc-900">
-      <div className="mx-auto max-w-5xl space-y-6">
+      <div className="mx-auto max-w-6xl space-y-6">
         
         {/* NAVEGACIÓN */}
         <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200">
@@ -217,14 +295,15 @@ export default function App() {
                 ⚽ Sistema de Fútbol · <span className="text-zinc-500 font-normal text-base">{hoy}</span>
               </h1>
             </div>
-            <div className="flex items-center gap-2 bg-zinc-100 p-1 rounded-lg">
-              <button onClick={() => setVistaActiva("panel")} className={`px-4 py-2 text-sm font-semibold rounded-md transition ${vistaActiva === "panel" ? "bg-white shadow-sm text-zinc-900" : "text-zinc-500 hover:text-zinc-700"}`}>Convocatorias</button>
-              <button onClick={() => setVistaActiva("plantel")} className={`px-4 py-2 text-sm font-semibold rounded-md transition ${vistaActiva === "plantel" ? "bg-white shadow-sm text-zinc-900" : "text-zinc-500 hover:text-zinc-700"}`}>Base de Jugadores</button>
+            <div className="flex items-center gap-2 bg-zinc-100 p-1 rounded-lg overflow-x-auto w-full sm:w-auto">
+              <button onClick={() => setVistaActiva("panel")} className={`px-4 py-2 text-sm font-semibold rounded-md transition whitespace-nowrap ${vistaActiva === "panel" ? "bg-white shadow-sm text-zinc-900" : "text-zinc-500 hover:text-zinc-700"}`}>Convocatorias</button>
+              <button onClick={() => setVistaActiva("plantel")} className={`px-4 py-2 text-sm font-semibold rounded-md transition whitespace-nowrap ${vistaActiva === "plantel" ? "bg-white shadow-sm text-zinc-900" : "text-zinc-500 hover:text-zinc-700"}`}>Base Jugadores</button>
+              <button onClick={() => setVistaActiva("materiales")} className={`px-4 py-2 text-sm font-semibold rounded-md transition whitespace-nowrap ${vistaActiva === "materiales" ? "bg-white shadow-sm text-zinc-900" : "text-zinc-500 hover:text-zinc-700"}`}>Materiales</button>
             </div>
           </div>
         </div>
 
-        {/* VISTA 1: PANEL */}
+        {/* VISTA 1: PANEL DE CONVOCATORIAS */}
         {vistaActiva === "panel" && (
           <div className="space-y-6">
             <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200 flex flex-wrap gap-3">
@@ -251,17 +330,16 @@ export default function App() {
 
             <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200 space-y-4">
               <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
-                <h2 className="text-base font-semibold text-zinc-800 flex items-center gap-2"><Users className="size-5 text-emerald-600" /> Equipos Armados y Materiales</h2>
+                <h2 className="text-base font-semibold text-zinc-800 flex items-center gap-2"><Users className="size-5 text-emerald-600" /> Equipos Armados</h2>
                 <button onClick={rearmarPartidos} className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-lg transition"><Shuffle className="size-3.5" /> Recalcular</button>
               </div>
 
               {Object.keys(sedesArmadas).length === 0 ? (
                 <p className="text-sm text-zinc-500 py-4 text-center">Sincroniza la planilla para ver el armado.</p>
               ) : (
-                <div className="grid grid-cols-1 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {Object.values(sedesArmadas).map((sede) => {
                     const equipos = dividirEnEquipos(sede.convocados, bdPuntajes);
-                    const mat = materiales[sede.nombre] || { pelotas: "", pecheras: "" };
                     return (
                       <div key={sede.nombre} className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 space-y-4">
                         <div className="flex items-center justify-between">
@@ -277,43 +355,22 @@ export default function App() {
                         </div>
 
                         {sede.activa && (
-                          <>
-                            {/* Materiales */}
-                            <div className="flex flex-col sm:flex-row gap-3 bg-white p-3 rounded-lg border border-zinc-200">
-                              <div className="flex-1 space-y-1">
-                                <label className="text-xs font-bold text-zinc-600 flex items-center gap-1"><Package className="size-3" /> Pelotas</label>
-                                <select className="w-full text-sm border-zinc-200 rounded p-1.5" value={mat.pelotas} onChange={(e) => actualizarMaterial(sede.nombre, "pelotas", e.target.value)}>
-                                  <option value="">Seleccionar responsable...</option>
-                                  {sede.convocados.map(j => <option key={j.id} value={j.apodo}>{j.apodo}</option>)}
-                                </select>
-                              </div>
-                              <div className="flex-1 space-y-1">
-                                <label className="text-xs font-bold text-zinc-600 flex items-center gap-1"><Package className="size-3" /> Pecheras</label>
-                                <select className="w-full text-sm border-zinc-200 rounded p-1.5" value={mat.pecheras} onChange={(e) => actualizarMaterial(sede.nombre, "pecheras", e.target.value)}>
-                                  <option value="">Seleccionar responsable...</option>
-                                  {sede.convocados.map(j => <option key={j.id} value={j.apodo}>{j.apodo}</option>)}
-                                </select>
-                              </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="rounded-lg bg-white p-3 border border-zinc-200">
+                              <p className="font-bold text-zinc-700 flex items-center justify-between border-b pb-2 mb-2">
+                                <span className="flex items-center gap-1"><Shield className="size-4" /> Blancos</span>
+                                <span className="text-[10px] bg-zinc-100 px-1.5 py-0.5 rounded">Prom: {equipos.promedioBlancos}</span>
+                              </p>
+                              <div className="space-y-1">{equipos.blancos.map((j, i) => <p key={i} className="text-sm text-zinc-600">• {j.apodo}</p>)}</div>
                             </div>
-
-                            {/* Equipos */}
-                            <div className="grid grid-cols-2 gap-3">
-                              <div className="rounded-lg bg-white p-3 border border-zinc-200">
-                                <p className="font-bold text-zinc-700 flex items-center justify-between border-b pb-2 mb-2">
-                                  <span className="flex items-center gap-1"><Shield className="size-4" /> Blancos</span>
-                                  <span className="text-[10px] bg-zinc-100 px-1.5 py-0.5 rounded">Prom: {equipos.promedioBlancos}</span>
-                                </p>
-                                <div className="space-y-1">{equipos.blancos.map((j, i) => <p key={i} className="text-sm text-zinc-600">• {j.apodo}</p>)}</div>
-                              </div>
-                              <div className="rounded-lg bg-zinc-900 text-zinc-100 p-3 border border-zinc-800">
-                                <p className="font-bold text-zinc-200 flex items-center justify-between border-b border-zinc-700 pb-2 mb-2">
-                                  <span className="flex items-center gap-1"><Shield className="size-4" /> Negros</span>
-                                  <span className="text-[10px] bg-zinc-800 px-1.5 py-0.5 rounded">Prom: {equipos.promedioNegros}</span>
-                                </p>
-                                <div className="space-y-1">{equipos.negros.map((j, i) => <p key={i} className="text-sm text-zinc-300">• {j.apodo}</p>)}</div>
-                              </div>
+                            <div className="rounded-lg bg-zinc-900 text-zinc-100 p-3 border border-zinc-800">
+                              <p className="font-bold text-zinc-200 flex items-center justify-between border-b border-zinc-700 pb-2 mb-2">
+                                <span className="flex items-center gap-1"><Shield className="size-4" /> Negros</span>
+                                <span className="text-[10px] bg-zinc-800 px-1.5 py-0.5 rounded">Prom: {equipos.promedioNegros}</span>
+                              </p>
+                              <div className="space-y-1">{equipos.negros.map((j, i) => <p key={i} className="text-sm text-zinc-300">• {j.apodo}</p>)}</div>
                             </div>
-                          </>
+                          </div>
                         )}
                       </div>
                     );
@@ -338,31 +395,159 @@ export default function App() {
           </div>
         )}
 
-        {/* VISTA 2: PLANTEL */}
+        {/* VISTA 2: BASE DE DATOS DEL PLANTEL */}
         {vistaActiva === "plantel" && (
-          <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200 space-y-4">
-            <h2 className="text-lg font-bold text-zinc-800 flex items-center gap-2 border-b border-zinc-100 pb-4"><Users className="size-5 text-blue-600" /> Directorio del Plantel ({plantel.length})</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {plantel.map((j, i) => (
-                <div key={i} className="flex items-start justify-between p-4 rounded-xl border border-zinc-200 bg-zinc-50 hover:bg-white transition shadow-sm">
-                  <div className="space-y-1 min-w-0">
-                    <p className="font-bold text-zinc-900 truncate">{j.nombre} {j.apodo ? `"${j.apodo}"` : ""}</p>
-                    <p className="text-xs text-zinc-500 flex items-center gap-1"><MapPin className="size-3" /> {j.barrio || "Sin barrio"}</p>
-                    <p className="text-xs text-zinc-500">Puesto: <span className="font-medium text-zinc-700">{j.puesto || "No especificado"}</span></p>
-                    {bdPuntajes[j.email?.toLowerCase().trim()] && (
-                       <p className="text-xs font-semibold text-emerald-700 mt-1">Nivel BD: {bdPuntajes[j.email?.toLowerCase().trim()]}</p>
+          <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200 space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-zinc-100 pb-4">
+              <h2 className="text-lg font-bold text-zinc-800 flex items-center gap-2">
+                <Users className="size-5 text-blue-600" /> Directorio del Plantel ({plantelFiltrado.length}/{plantel.length})
+              </h2>
+              <div className="relative w-full sm:w-80">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-zinc-400" />
+                <input type="text" placeholder="Buscar por nombre, apodo, barrio..." value={busquedaPlantel} onChange={(e) => setBusquedaPlantel(e.target.value)} className="w-full pl-9 pr-4 py-2 bg-zinc-50 border border-zinc-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition" />
+              </div>
+            </div>
+
+            {cargando ? (
+              <p className="text-sm text-zinc-500 py-8 text-center flex items-center justify-center gap-2"><Loader2 className="size-5 animate-spin" /> Cargando base de datos...</p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {plantelFiltrado.map((j, i) => (
+                  <div key={i} className="flex flex-col p-4 rounded-xl border border-zinc-200 bg-zinc-50 hover:bg-white transition shadow-sm space-y-3">
+                    <div className="flex justify-between items-start gap-2">
+                      <div className="min-w-0">
+                        <h3 className="font-bold text-zinc-900 truncate">{j.nombre}</h3>
+                        {j.apodo && <p className="text-sm font-medium text-zinc-600">"{j.apodo}"</p>}
+                      </div>
+                      <span className={`text-[10px] px-2 py-1 rounded font-bold shrink-0 ${j.pago ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>{j.pago ? '✅ AL DÍA' : '❌ DEBE'}</span>
+                    </div>
+                    <div className="space-y-1.5 text-xs text-zinc-600">
+                      <p className="flex items-center gap-1.5"><MapPin className="size-3.5 text-zinc-400" /> <span className="font-medium text-zinc-800">Barrio:</span> {j.barrio || "-"} {j.lote ? `(Lote ${j.lote})` : ""}</p>
+                      <p className="flex items-center gap-1.5"><Shield className="size-3.5 text-zinc-400" /> <span className="font-medium text-zinc-800">Puesto:</span> {j.puesto || "-"}</p>
+                      {bdPuntajes[j.email?.toLowerCase().trim()] && (
+                        <p className="flex items-center gap-1.5 text-emerald-700 font-semibold"><Star className="size-3.5" /> Nivel BD: {bdPuntajes[j.email?.toLowerCase().trim()]}</p>
+                      )}
+                    </div>
+                    {j.telefono && (
+                      <div className="pt-3 mt-auto border-t border-zinc-100">
+                        <a href={formatearLinkWhatsApp(j.telefono)} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#20bd5a] text-white px-3 py-2 rounded-lg text-xs font-bold transition shadow-sm w-full"><MessageCircle className="size-4" /> Enviar WhatsApp</a>
+                      </div>
                     )}
                   </div>
-                  {j.telefono && (
-                    <a href={formatearLinkWhatsApp(j.telefono)} target="_blank" rel="noopener noreferrer" className="shrink-0 flex items-center gap-1.5 bg-[#25D366] hover:bg-[#20bd5a] text-white px-3 py-1.5 rounded-lg text-xs font-bold transition shadow-sm">
-                      <MessageCircle className="size-4" /> WhatsApp
-                    </a>
-                  )}
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* VISTA 3: MATERIALES */}
+        {vistaActiva === "materiales" && (
+          <div className="space-y-6">
+            <div className="flex items-center gap-3 border-b border-zinc-200 pb-4">
+              <Package className="w-8 h-8 text-emerald-600" />
+              <div>
+                <h1 className="text-2xl font-bold text-zinc-900">Entrega y Registro de Materiales</h1>
+                <p className="text-sm text-zinc-500">Control de pecheras y pelotas asignadas al plantel oficial</p>
+              </div>
+            </div>
+
+            {mensajeMat && (
+              <div className={`border-l-4 p-4 flex items-center justify-between rounded ${mensajeMat.tipo === 'error' ? 'bg-red-50 border-red-500 text-red-700' : 'bg-emerald-50 border-emerald-500 text-emerald-700'}`}>
+                <div className="flex items-center gap-2">
+                  {mensajeMat.tipo === 'error' ? <AlertCircle className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
+                  <span>{mensajeMat.texto}</span>
                 </div>
-              ))}
+                <button onClick={() => setMensajeMat(null)} className="text-sm font-bold">✕</button>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* FORMULARIO DE NUEVA ENTREGA */}
+              <div className="lg:col-span-1 bg-white p-6 rounded-xl shadow-sm border border-zinc-200 space-y-6">
+                <h2 className="text-lg font-semibold text-zinc-800 flex items-center gap-2"><User className="w-5 h-5 text-emerald-600" /> Nueva Entrega</h2>
+
+                <form onSubmit={handleSubmitMat} className="space-y-5">
+                  <div className="relative">
+                    <label className="block text-sm font-medium text-zinc-700 mb-1">Jugador (Buscar en Plantel)</label>
+                    <input type="text" placeholder="Apodo, nombre o lote..." value={jugadorMat} onChange={(e) => { setJugadorMat(e.target.value); setJugadorSeleccionadoMat(null); setMostrarSugerenciasMat(true); }} onFocus={() => setMostrarSugerenciasMat(true)} className="w-full px-3 py-2 border border-zinc-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none text-sm" />
+                    
+                    {mostrarSugerenciasMat && jugadoresFiltradosMat.length > 0 && (
+                      <div className="absolute z-20 left-0 right-0 top-full mt-1 bg-white border border-zinc-200 rounded-lg shadow-lg max-h-48 overflow-y-auto divide-y divide-zinc-100">
+                        {jugadoresFiltradosMat.map((p, idx) => (
+                          <button key={idx} type="button" onClick={() => { setJugadorMat(p.apodo || p.nombre || ""); setJugadorSeleccionadoMat(p); setMostrarSugerenciasMat(false); }} className="w-full text-left px-3 py-2 hover:bg-zinc-50 text-sm flex justify-between items-center text-zinc-800">
+                            <div><span className="font-semibold">{p.apodo || p.nombre}</span></div>
+                            {p.lote && <span className="text-xs bg-zinc-100 px-2 py-0.5 rounded text-zinc-600">Lote {p.lote}</span>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-700 mb-2">¿Qué se lleva?</label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2">
+                      {OPCIONES_MATERIALES.map((mat) => (
+                        <label key={mat.id} className={`flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition-colors ${materialesSeleccionados.includes(mat.id) ? "bg-emerald-50 border-emerald-500 font-medium text-emerald-900" : "border-zinc-200 hover:bg-zinc-50 text-zinc-600"}`}>
+                          <span className="text-sm">{mat.label}</span>
+                          <input type="checkbox" checked={materialesSeleccionados.includes(mat.id)} onChange={() => toggleMaterial(mat.id)} className="w-4 h-4 text-emerald-600 rounded" />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button type="submit" disabled={loadingGuardarMat} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2.5 rounded-lg flex items-center justify-center gap-2 transition disabled:opacity-50">
+                    {loadingGuardarMat ? <><Loader2 className="w-4 h-4 animate-spin" /> Guardando...</> : <><Send className="w-4 h-4" /> Guardar Entrega</>}
+                  </button>
+                </form>
+              </div>
+
+              {/* HISTORIAL */}
+              <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-zinc-200 space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-100 pb-4">
+                  <h2 className="text-lg font-semibold text-zinc-800 flex items-center gap-2"><History className="w-5 h-5 text-emerald-600" /> Historial de Préstamos</h2>
+                  <div className="relative">
+                    <Search className="w-4 h-4 absolute left-3 top-2.5 text-zinc-400" />
+                    <input type="text" placeholder="Buscar jugador..." value={busquedaMat} onChange={(e) => setBusquedaMat(e.target.value)} className="pl-9 pr-4 py-1.5 text-sm border border-zinc-200 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none w-full sm:w-60" />
+                  </div>
+                </div>
+
+                {cargando ? (
+                  <div className="flex items-center justify-center py-12 text-zinc-500"><Loader2 className="w-6 h-6 animate-spin text-emerald-600" /></div>
+                ) : historialMatFiltrado.length === 0 ? (
+                  <div className="text-center py-12 text-zinc-500">No se encontraron entregas registradas.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-zinc-50 text-zinc-600 font-medium border-y border-zinc-200">
+                        <tr>
+                          <th className="py-3 px-3">Fecha</th>
+                          <th className="py-3 px-3">Jugador</th>
+                          <th className="py-3 px-3">Materiales</th>
+                          <th className="py-3 px-3 text-center">Aviso</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-100">
+                        {historialMatFiltrado.map((item, index) => (
+                          <tr key={index} className="hover:bg-zinc-50/50">
+                            <td className="py-3 px-3 text-zinc-500">{item.fecha}</td>
+                            <td className="py-3 px-3 font-semibold text-zinc-800">{item.jugador} {item.lote ? <span className="text-xs font-normal text-zinc-400 block">Lote {item.lote}</span> : ""}</td>
+                            <td className="py-3 px-3 text-zinc-600">{item.materiales}</td>
+                            <td className="py-3 px-3 text-center">
+                              <a href={armarLinkWhatsappVIP(item)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs bg-[#25D366] text-white hover:bg-[#20bd5a] px-3 py-1.5 rounded-lg font-bold transition">
+                                <MessageCircle className="w-4 h-4" /> Reclamar & VIP
+                              </a>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
+
       </div>
     </div>
   );
