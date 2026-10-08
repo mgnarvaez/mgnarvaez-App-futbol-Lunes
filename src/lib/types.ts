@@ -43,3 +43,15 @@ export interface Convocatoria {
   suspension_lluvia: boolean;
   sedes_canceladas: Sede[] | string[];
 }
+
+export interface InscripcionLocal {
+  id: string;
+  apodo: string;
+  email: string;
+  sede: string;
+  flexible: boolean;
+  juegaConLluvia: boolean;
+  vip: boolean;
+  estadoPago: "AL_DÍA" | "DEBE";
+  fecha: string;
+}
