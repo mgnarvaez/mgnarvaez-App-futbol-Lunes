@@ -207,3 +207,29 @@ export async function registrarMaterialesSheet(jugador: string, materiales: stri
     return { ok: false, mensaje: "Error de conexión." };
   }
 }
+// =========================================================================
+// 5. LECTURA DIRECTA DE PUNTAJES DESDE LA PLANILLA DE EQUIPOS
+// =========================================================================
+export async function obtenerPuntajesEquiposSheet(): Promise<Record<string, number>> {
+  try {
+    // Usamos el endpoint de Apps Script o lectura directa si está publicado, 
+    // o consultamos mediante el Web App de equipos si cuenta con acción de lectura.
+    const res = await fetch(`${APPS_SCRIPT_ARMADO_URL}?action=read_puntajes`);
+    if (!res.ok) return {};
+    const data = await res.json();
+    const puntajesMap: Record<string, number> = {};
+    
+    const filas = data?.puntajes || data?.values || [];
+    filas.forEach((row: any) => {
+      const idOrEmail = (row[0] || "").toString().toLowerCase().trim();
+      const puntaje = parseFloat((row[1] || "").toString().replace(",", "."));
+      if (idOrEmail && !isNaN(puntaje)) {
+        puntajesMap[idOrEmail] = puntaje;
+      }
+    });
+    return puntajesMap;
+  } catch (error) {
+    console.error("Error al leer puntajes de equipos:", error);
+    return {};
+  }
+}
