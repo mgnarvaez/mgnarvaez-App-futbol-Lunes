@@ -168,3 +168,42 @@ export async function leerPlantel(): Promise<JugadorPlantelSheet[]> {
 export async function obtenerPlantelSheet(): Promise<JugadorPlantelSheet[]> {
   return leerPlantel();
 }
+export interface RegistroMaterialSheet {
+  id?: string;
+  fecha: string;
+  jugador: string;
+  materiales: string;
+  lote: string;
+}
+
+export async function obtenerMaterialesSheet(): Promise<{ historial: RegistroMaterialSheet[] }> {
+  try {
+    const res = await fetch(`${APPS_SCRIPT_PLANTEL_URL}?action=read_materiales`);
+    const data = await res.json();
+    return data;
+  } catch (error) {
+    console.error("Error al leer materiales:", error);
+    return { historial: [] };
+  }
+}
+
+export async function registrarMaterialesSheet(jugador: string, materiales: string[]) {
+  try {
+    const res = await fetch(APPS_SCRIPT_PLANTEL_URL, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "registrar_materiales",
+        jugador,
+        materiales: materiales.join(", ")
+      })
+    });
+    const data = await res.json();
+    if (data.status === "success" || data.ok) {
+      return { ok: true, mensaje: "Materiales registrados con éxito." };
+    }
+    return { ok: false, mensaje: data.error || "Error al registrar materiales." };
+  } catch (error) {
+    console.error("Error al registrar materiales:", error);
+    return { ok: false, mensaje: "Error de conexión." };
+  }
+}
