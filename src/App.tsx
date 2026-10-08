@@ -1,20 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { CloudRain, ExternalLink, Loader2, RefreshCw, UserMinus, ShieldAlert, Shuffle, Users, Copy, Check } from "lucide-react";
-import { obtenerInscriptosSheet, obtenerPlantelSheet, registrarBajaSheet, type InscriptoSheet, type JugadorPlantelSheet } from "@/lib/sheets.functions";
-import { SEDES, SEDE_LABELS, type Sede } from "@/lib/types";
+import { ejecutarOrganizarSheet, leerInscriptos, obtenerPlantelSheet, registrarBajaSheet, type InscriptoSheet, type JugadorPlantelSheet } from "@/lib/sheets.functions";
+import { SEDES, SEDE_LABELS, type Sede, type InscripcionLocal } from "@/lib/types";
 import { armarConvocatoriasPorSede, type SedeConvocatoria } from "@/lib/services/armadorService";
-
-export interface InscripcionLocal {
-  id: string;
-  apodo: string;
-  email: string;
-  sede: string;
-  flexible: boolean;
-  juegaConLluvia: boolean;
-  vip: boolean;
-  estadoPago: "AL_DÍA" | "DEBE";
-  fecha: string;
-}
 
 export default function App() {
   const [inscriptosSheet, setInscriptosSheet] = useState<InscriptoSheet[]>([]);
@@ -26,23 +14,22 @@ export default function App() {
   const [bajando, setBajando] = useState<string | null>(null);
   const [copiadoSede, setCopiadoSede] = useState<string | null>(null);
 
-  // Controles de Cancha y Clima
   const [suspensionLluvia, setSuspensionLluvia] = useState(false);
   const [sedesCanceladas, setSedesCanceladas] = useState<Sede[]>([]);
   const [canchaMojadaCanton, setCanchaMojadaCanton] = useState(false);
   const [puertos10vs10, setPuertos10vs10] = useState(false);
 
-  // Resultado del armado
   const [sedesArmadas, setSedesArmadas] = useState<Record<string, SedeConvocatoria>>({});
 
   const hoy = new Date().toISOString().slice(0, 10);
-  const FORM_URL = "https://forms.gle/18-6FV5tk7gjSssBNUWCojRMrI4CYR18rfz3BmVUAZ3A";
+  const FORM_URL = "https://docs.google.com/forms/d/18-6FV5tk7gjSssBNUWCojRMrI4CYR18rfz3BmVUAZ3A/viewform";
 
   const cargarDatosIniciales = async () => {
     setCargando(true);
     try {
+      const resOrg = await ejecutarOrganizarSheet();
       const [sheetData, plantelData] = await Promise.all([
-        obtenerInscriptosSheet(),
+        leerInscriptos(resOrg.solapas ? { solapas: resOrg.solapas } : undefined),
         obtenerPlantelSheet()
       ]);
       setInscriptosSheet(sheetData);
@@ -61,8 +48,9 @@ export default function App() {
   const sincronizarPlanilla = async () => {
     setSincronizando(true);
     try {
+      const resOrg = await ejecutarOrganizarSheet();
       const [sheetData, plantelData] = await Promise.all([
-        obtenerInscriptosSheet(),
+        leerInscriptos(resOrg.solapas ? { solapas: resOrg.solapas } : undefined),
         obtenerPlantelSheet()
       ]);
       
@@ -103,7 +91,7 @@ export default function App() {
       );
       setSedesArmadas(resultadoArmado);
 
-      alert(`✅ Sincronización exitosa: ${consolidadas.length} inscripto(s) procesado(s).`);
+      alert(`✅ Sincronización exitosa: ${consolidadas.length} inscripto(s) actualizados al instante.`);
     } catch (err) {
       alert("❌ Error al sincronizar la planilla.");
       console.error(err);
@@ -167,7 +155,6 @@ export default function App() {
     setSedesArmadas(armarConvocatoriasPorSede(nuevas, suspensionLluvia, sedesCanceladas, canchaMojadaCanton, puertos10vs10));
   };
 
-  // FUNCIÓN PARA COPIAR A WHATSAPP
   const copiarParaWhatsApp = (sede: SedeConvocatoria) => {
     const nombreBonito = SEDE_LABELS[sede.nombre as Sede] || sede.nombre;
     let texto = `⚽ *CONVOCATORIA: ${nombreBonito}* ⚽\n📅 Fecha: ${hoy}\n\n`;
@@ -197,14 +184,13 @@ export default function App() {
     <div className="min-h-screen bg-zinc-50 p-4 sm:p-6 text-zinc-900">
       <div className="mx-auto max-w-4xl space-y-6">
         
-        {/* Cabecera */}
         <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-zinc-100 pb-4">
             <h1 className="text-xl font-bold flex items-center gap-2">
               ⚽ Panel de Convocatorias · <span className="text-zinc-500 font-normal text-base">{hoy}</span>
             </h1>
             <span className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 w-fit">
-              🟢 V18 + WhatsApp Copier
+              🟢 Sincronización Instantánea Activa
             </span>
           </div>
 
@@ -230,7 +216,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Controles de Cancha y Clima */}
         <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200 space-y-4">
           <h2 className="text-base font-semibold text-zinc-800 flex items-center gap-2">
             <ShieldAlert className="size-5 text-amber-600" />
@@ -299,7 +284,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* EQUIPOS ARMADOS POR SEDE + BOTÓN WHATSAPP */}
         <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200 space-y-4">
           <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
             <h2 className="text-base font-semibold text-zinc-800 flex items-center gap-2">
@@ -393,7 +377,6 @@ export default function App() {
           )}
         </div>
 
-        {/* CONTROL GENERAL DE ANOTADOS */}
         <div className="rounded-xl bg-white p-6 shadow-sm border border-zinc-200">
           <h2 className="text-base font-semibold text-zinc-800 mb-3">
             Control General de Anotados ({inscripciones.length})
@@ -410,7 +393,7 @@ export default function App() {
                     <span className="font-semibold truncate">{i.apodo}</span>
                     {i.vip && <span className="bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded text-[10px] font-bold">VIP</span>}
                     <span className="text-xs bg-white border border-zinc-200 px-2 py-0.5 rounded font-medium">{i.sede}</span>
-                    {i.flexible && <span className="bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded text-[10px] font-bold">FLEX</span>}
+                    {i.flexible && <span className="text-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded text-[10px] font-bold">FLEX</span>}
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
