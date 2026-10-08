@@ -1,4 +1,4 @@
-import type { InscripcionLocal } from "@/App";
+import type { InscripcionLocal } from "@/lib/types";
 
 export interface SedeConvocatoria {
   nombre: string;
@@ -17,7 +17,6 @@ export function armarConvocatoriasPorSede(
   puertos10vs10: boolean
 ): Record<string, SedeConvocatoria> {
   
-  // Capacidades estándar de las sedes
   const capacidades: Record<string, number> = {
     "CANTON": 14,
     "SM": 16,
@@ -30,7 +29,6 @@ export function armarConvocatoriasPorSede(
     sedesActivasList.push("PUERTOS 2");
   }
 
-  // Inicializar estructura de sedes
   const resultado: Record<string, SedeConvocatoria> = {};
   sedesActivasList.forEach(sede => {
     let suspendida = sedesCanceladas.includes(sede);
@@ -61,13 +59,11 @@ export function armarConvocatoriasPorSede(
     };
   }
 
-  // Filtrar por lluvia general si aplica
   let poolJugadores = [...inscriptos];
   if (suspensionLluviaGeneral) {
     poolJugadores = poolJugadores.filter(j => j.juegaConLluvia);
   }
 
-  // Si Cantón está suspendido por cancha mojada, los que tenían preferencia Cantón y son flexibles pasan a Puertos 2
   if (canchaMojadaCanton) {
     poolJugadores = poolJugadores.map(j => {
       if (j.sede.toUpperCase().includes("CANTON") && j.flexible) {
@@ -77,18 +73,15 @@ export function armarConvocatoriasPorSede(
     });
   }
 
-  // Orden de prioridad estricta: 1) Pago al día, 2) VIP, 3) Fecha/Antigüedad
   poolJugadores.sort((a, b) => {
     if (a.estadoPago !== b.estadoPago) return a.estadoPago === "AL_DÍA" ? -1 : 1;
     if (a.vip !== b.vip) return a.vip ? -1 : 1;
     return a.fecha.localeCompare(b.fecha);
   });
 
-  // Reparto a sedes preferidas con lógica de flexibles
   poolJugadores.forEach(jugador => {
     let sedeDestino = jugador.sede.toUpperCase();
     if (!resultado[sedeDestino] || !resultado[sedeDestino].activa) {
-      // Buscar primera sede activa disponible para flexibles
       const primeraActiva = sedesActivasList.find(s => resultado[s] && resultado[s].activa);
       sedeDestino = primeraActiva || "CANTON";
     }
@@ -97,7 +90,6 @@ export function armarConvocatoriasPorSede(
       if (resultado[sedeDestino].convocados.length < resultado[sedeDestino].capacidad) {
         resultado[sedeDestino].convocados.push(jugador);
       } else if (jugador.flexible) {
-        // Intentar ubicar en otra sede activa que tenga lugar
         let ubicado = false;
         for (const s of sedesActivasList) {
           if (resultado[s] && resultado[s].activa && resultado[s].convocados.length < resultado[s].capacidad) {
