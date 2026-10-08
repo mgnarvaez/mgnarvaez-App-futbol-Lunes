@@ -5,13 +5,20 @@ import { SEDES, SEDE_LABELS, type Sede, type InscripcionLocal } from "@/lib/type
 import { armarConvocatoriasPorSede, type SedeConvocatoria } from "@/lib/services/armadorService";
 import { dividirEnEquipos } from "@/lib/services/equiposService";
 
+interface PuntajeDetalle {
+  ataque: string;
+  defensa: string;
+  equipo: string;
+  general: string;
+}
+
 export default function App() {
   const [vistaActiva, setVistaActiva] = useState<"panel" | "plantel" | "materiales">("panel");
   
   const [inscriptosSheet, setInscriptosSheet] = useState<InscriptoSheet[]>([]);
   const [plantel, setPlantel] = useState<JugadorPlantelSheet[]>([]);
   const [inscripciones, setInscripciones] = useState<InscripcionLocal[]>([]);
-  const [bdPuntajes, setBdPuntajes] = useState<Record<string, number>>({});
+  const [bdPuntajes, setBdPuntajes] = useState<Record<string, PuntajeDetalle>>({});
   
   const [cargando, setCargando] = useState(true);
   const [sincronizando, setSincronizando] = useState(false);
@@ -54,16 +61,20 @@ export default function App() {
   const FORM_URL = "https://docs.google.com/forms/d/18-6FV5tk7gjSssBNUWCojRMrI4CYR18rfz3BmVUAZ3A/viewform";
 
   const extraerPuntajesDeSolapas = (solapas: any) => {
-    const puntajesFormateados: Record<string, number> = {};
+    const puntajesFormateados: Record<string, PuntajeDetalle> = {};
     try {
       if (solapas && solapas["BD puntajes"]) {
         const filas = solapas["BD puntajes"].values || [];
         filas.forEach((fila: any[]) => {
           if (!Array.isArray(fila)) return;
           const email = (fila[0] || "").toString().toLowerCase().trim();
-          const puntaje = parseFloat((fila[1] || "").toString().replace(",", "."));
-          if (email && !isNaN(puntaje)) {
-            puntajesFormateados[email] = puntaje;
+          if (email) {
+            puntajesFormateados[email] = {
+              ataque: (fila[1] !== undefined ? fila[1] : "-").toString(),
+              defensa: (fila[2] !== undefined ? fila[2] : "-").toString(),
+              equipo: (fila[3] !== undefined ? fila[3] : "-").toString(),
+              general: (fila[4] !== undefined ? fila[4] : fila[1] || "-").toString(),
+            };
           }
         });
       }
@@ -198,12 +209,18 @@ export default function App() {
   const copiarParaWhatsApp = (sede: SedeConvocatoria) => {
     const nombreBonito = SEDE_LABELS[sede.nombre as Sede] || sede.nombre;
     
+    // Mapeador simple de puntajes numéricos generales para el servicio de equipos
+    const puntajesGeneralesMap: Record<string, number> = {};
+    Object.keys(bdPuntajes).forEach(k => {
+      puntajesGeneralesMap[k] = parseFloat(bdPuntajes[k].general) || 5;
+    });
+
     let texto = `⚽ *CONVOCATORIA: ${nombreBonito}* ⚽\n📅 Fecha: ${hoy}\n\n`;
 
     if (!sede.activa) {
       texto += `❌ *SEDE SUSPENDIDA*: ${sede.motivoSuspension || "No disponible"}\n`;
     } else {
-      const equipos = dividirEnEquipos(sede.convocados, bdPuntajes);
+      const equipos = dividirEnEquipos(sede.convocados, puntajesGeneralesMap);
       
       texto += `✅ *TITULARES (${sede.convocados.length}/${sede.capacidad})*:\n`;
       sede.convocados.forEach((j, i) => { texto += `${i + 1}. ${j.apodo}${j.vip ? " ⭐" : ""}\n`; });
@@ -352,7 +369,10 @@ export default function App() {
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {Object.values(sedesArmadas).map((sede) => {
-                    const equipos = dividirEnEquipos(sede.convocados, bdPuntajes);
+                    const puntajesGeneralesMap: Record<string, number> = {};
+                    Object.keys(bdPuntajes).forEach(k => { puntajesGeneralesMap[k] = parseFloat(bdPuntajes[k].general) || 5; });
+                    const equipos = dividirEnEquipos(sede.convocados, puntajesGeneralesMap);
+
                     return (
                       <div key={sede.nombre} className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 space-y-4">
                         <div className="flex items-center justify-between">
@@ -431,11 +451,10 @@ export default function App() {
                   const apodoKey = (j.apodo || "").toLowerCase().trim();
                   const nombreKey = (j.nombre || "").toLowerCase().trim();
 
-                  // Busca el puntaje validando por email o por coincidencia directa de nombre/apodo en BD Puntajes
-                  let puntajeJugador = bdPuntajes[emailKey] ?? bdPuntajes[emailAltKey];
-                  if (puntajeJugador === undefined) {
+                  let datosPuntaje = bdPuntajes[emailKey] || bdPuntajes[emailAltKey];
+                  if (!datosPuntaje) {
                     const foundKey = Object.keys(bdPuntajes).find(k => k.includes(apodoKey) || (apodoKey && apodoKey.includes(k)) || k.includes(nombreKey));
-                    if (foundKey) puntajeJugador = bdPuntajes[foundKey];
+                    if (foundKey) datosPuntaje = bdPuntajes[foundKey];
                   }
 
                   return (
@@ -447,13 +466,25 @@ export default function App() {
                         </div>
                         <span className={`text-[10px] px-2 py-1 rounded font-bold shrink-0 ${j.pago ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>{j.pago ? '✅ AL DÍA' : '❌ DEBE'}</span>
                       </div>
+                      
                       <div className="space-y-1.5 text-xs text-zinc-600">
                         <p className="flex items-center gap-1.5"><MapPin className="size-3.5 text-zinc-400" /> <span className="font-medium text-zinc-800">Barrio:</span> {j.barrio || "-"} {j.lote ? `(Lote ${j.lote})` : ""}</p>
                         <p className="flex items-center gap-1.5"><Shield className="size-3.5 text-zinc-400" /> <span className="font-medium text-zinc-800">Puesto:</span> {j.puesto || "-"}</p>
-                        {puntajeJugador !== undefined && (
-                          <p className="flex items-center gap-1.5 text-emerald-700 font-semibold"><Star className="size-3.5" /> Nivel BD: {puntajeJugador}</p>
+                        
+                        {datosPuntaje && (
+                          <div className="mt-2 pt-2 border-t border-zinc-200 space-y-1 bg-emerald-50/60 p-2 rounded-lg">
+                            <p className="font-bold text-emerald-800 flex items-center gap-1">
+                              <Star className="size-3.5" /> Puntajes BD:
+                            </p>
+                            <div className="grid grid-cols-3 gap-1 text-[11px] text-zinc-700 text-center font-medium">
+                              <span className="bg-white p-1 rounded border">⚔️ Ataq: <b>{datosPuntaje.ataque}</b></span>
+                              <span className="bg-white p-1 rounded border">🛡️ Def: <b>{datosPuntaje.defensa}</b></span>
+                              <span className="bg-white p-1 rounded border">🤝 Eq: <b>{datosPuntaje.equipo}</b></span>
+                            </div>
+                          </div>
                         )}
                       </div>
+
                       {j.telefono && (
                         <div className="pt-3 mt-auto border-t border-zinc-100">
                           <a href={formatearLinkWhatsApp(j.telefono)} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#20bd5a] text-white px-3 py-2 rounded-lg text-xs font-bold transition shadow-sm w-full"><MessageCircle className="size-4" /> Enviar WhatsApp</a>
