@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { CloudRain, ExternalLink, Loader2, RefreshCw, UserMinus, ShieldAlert, Shuffle, Users, Copy, Check, Shield, MessageCircle, MapPin, Package, Search, Calendar, Star, Send, History, AlertCircle } from "lucide-react";
+import { CloudRain, ExternalLink, Loader2, RefreshCw, UserMinus, ShieldAlert, Shuffle, Users, Copy, Check, Shield, MessageCircle, MapPin, Package, Search, Calendar, Star, Send, History, AlertCircle, User } from "lucide-react";
 import { ejecutarOrganizarSheet, leerInscriptos, obtenerPlantelSheet, registrarBajaSheet, obtenerMaterialesSheet, registrarMaterialesSheet, type InscriptoSheet, type JugadorPlantelSheet, type RegistroMaterialSheet } from "@/lib/sheets.functions";
 import { SEDES, SEDE_LABELS, type Sede, type InscripcionLocal } from "@/lib/types";
 import { armarConvocatoriasPorSede, type SedeConvocatoria } from "@/lib/services/armadorService";
@@ -233,7 +233,7 @@ export default function App() {
   };
 
   // ================= FUNCIONES DE MATERIALES =================
-  const jugadoresFiltradosMat = plantel.filter((p) => {
+  const jugadoresFiltradosMat = (plantel || []).filter((p) => {
     if (!jugadorMat.trim()) return false;
     const q = jugadorMat.toLowerCase();
     const apodo = (p.apodo || "").toLowerCase();
@@ -277,7 +277,7 @@ export default function App() {
   const armarLinkWhatsappVIP = (item: RegistroMaterialSheet) => {
     const msj = `Hola ${item.jugador}! Recordá que tenés prestado: ${item.materiales}. Acordate de llevarlo al próximo partido. Aca tenes el link para anotarte en cualquier momento antes de lunes y asegurarte participacion: ${LINK_INSCRIPCION_VIP}`;
     
-    const pEncontrado = plantel.find(p => (p.apodo && p.apodo.toLowerCase() === item.jugador.toLowerCase()) || (p.nombre && p.nombre.toLowerCase() === item.jugador.toLowerCase()));
+    const pEncontrado = (plantel || []).find(p => (p.apodo && p.apodo.toLowerCase() === item.jugador.toLowerCase()) || (p.nombre && p.nombre.toLowerCase() === item.jugador.toLowerCase()));
     const numTel = pEncontrado ? formatearLinkWhatsApp(pEncontrado.telefono).replace("https://wa.me/", "") : "";
 
     if (numTel && numTel !== "#") return `https://api.whatsapp.com/send?phone=${numTel}&text=${encodeURIComponent(msj)}`;
@@ -285,12 +285,12 @@ export default function App() {
   };
 
   const historialMatFiltrado = (historialMateriales || []).filter((h) =>
-    h.jugador.toLowerCase().includes(busquedaMat.toLowerCase()) ||
-    h.materiales.toLowerCase().includes(busquedaMat.toLowerCase()) ||
+    (h.jugador || "").toLowerCase().includes(busquedaMat.toLowerCase()) ||
+    (h.materiales || "").toLowerCase().includes(busquedaMat.toLowerCase()) ||
     (h.lote && h.lote.toLowerCase().includes(busquedaMat.toLowerCase()))
   );
 
-  const plantelFiltrado = plantel.filter(j => {
+  const plantelFiltrado = (plantel || []).filter(j => {
     if (!busquedaPlantel) return true;
     const termino = busquedaPlantel.toLowerCase();
     return ((j.nombre && j.nombre.toLowerCase().includes(termino)) || (j.apodo && j.apodo.toLowerCase().includes(termino)) || (j.barrio && j.barrio.toLowerCase().includes(termino)) || (j.puesto && j.puesto.toLowerCase().includes(termino)) || (j.email && j.email.toLowerCase().includes(termino)));
@@ -428,7 +428,15 @@ export default function App() {
                 {plantelFiltrado.map((j, i) => {
                   const emailKey = (j.email || "").toLowerCase().trim();
                   const emailAltKey = (j.email_alternativo || "").toLowerCase().trim();
-                  const puntajeJugador = bdPuntajes[emailKey] || bdPuntajes[emailAltKey];
+                  const apodoKey = (j.apodo || "").toLowerCase().trim();
+                  const nombreKey = (j.nombre || "").toLowerCase().trim();
+
+                  // Busca el puntaje validando por email o por coincidencia directa de nombre/apodo en BD Puntajes
+                  let puntajeJugador = bdPuntajes[emailKey] ?? bdPuntajes[emailAltKey];
+                  if (puntajeJugador === undefined) {
+                    const foundKey = Object.keys(bdPuntajes).find(k => k.includes(apodoKey) || (apodoKey && apodoKey.includes(k)) || k.includes(nombreKey));
+                    if (foundKey) puntajeJugador = bdPuntajes[foundKey];
+                  }
 
                   return (
                     <div key={i} className="flex flex-col p-4 rounded-xl border border-zinc-200 bg-zinc-50 hover:bg-white transition shadow-sm space-y-3">
