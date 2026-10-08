@@ -4,7 +4,7 @@ export const SEDES: Sede[] = ["CANTON", "SM", "PUERTOS", "PUERTOS 2"];
 
 export const SEDE_LABELS: Record<Sede, string> = {
   CANTON: "El Cantón",
-  SM: "San Martín",
+  SM: "San Matías",
   PUERTOS: "Puertos",
   "PUERTOS 2": "Puertos 2 (Lluvia)",
 };
