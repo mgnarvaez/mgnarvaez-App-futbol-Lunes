@@ -180,8 +180,10 @@ export async function obtenerPlantelSheet(): Promise<JugadorPlantelSheet[]> {
 export async function obtenerMaterialesSheet(): Promise<{ historial: RegistroMaterialSheet[] }> {
   try {
     const res = await fetch(`${APPS_SCRIPT_PLANTEL_URL}?action=read_materiales`);
+    if (!res.ok) return { historial: [] };
     const data = await res.json();
-    return data;
+    const historial = Array.isArray(data?.historial) ? data.historial : (Array.isArray(data) ? data : []);
+    return { historial };
   } catch (error) {
     console.error("Error al leer materiales:", error);
     return { historial: [] };
@@ -206,8 +208,20 @@ export async function registrarMaterialesSheet(jugador: string, materiales: stri
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify(payload)
     });
-    const data = await res.json();
-    if (data.status === "success" || data.success || data.ok) {
+
+    const textRes = await res.text();
+    if (!textRes) {
+      return { ok: true, mensaje: "Materiales registrados con éxito." };
+    }
+
+    let data;
+    try {
+      data = JSON.parse(textRes);
+    } catch {
+      return { ok: true, mensaje: "Materiales registrados con éxito." };
+    }
+
+    if (data.status === "success" || data.success || data.ok || data.result === "success") {
       return { ok: true, mensaje: "Materiales registrados con éxito." };
     }
     return { ok: false, mensaje: data.error || data.message || "Error al registrar materiales." };
