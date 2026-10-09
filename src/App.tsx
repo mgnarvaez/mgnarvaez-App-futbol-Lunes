@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { CloudRain, ExternalLink, Loader2, RefreshCw, UserMinus, ShieldAlert, Shuffle, Users, Copy, Check, Shield, MessageCircle, MapPin, Package, Search, Calendar, Star, Send, History, AlertCircle, User } from "lucide-react";
+import { CloudRain, ExternalLink, Loader2, RefreshCw, UserMinus, ShieldAlert, Shuffle, Users, Copy, Check, Shield, MessageCircle, MapPin, Package, Search, Calendar, Star, Send, History, AlertCircle, User, CheckCircle2 } from "lucide-react";
 import { ejecutarOrganizarSheet, leerInscriptos, obtenerPlantelSheet, registrarBajaSheet, obtenerMaterialesSheet, registrarMaterialesSheet, type InscriptoSheet, type JugadorPlantelSheet, type RegistroMaterialSheet } from "@/lib/sheets.functions";
 import { SEDES, SEDE_LABELS, type Sede, type InscripcionLocal } from "@/lib/types";
 import { armarConvocatoriasPorSede, type SedeConvocatoria } from "@/lib/services/armadorService";
@@ -227,7 +227,7 @@ export default function App() {
 
   const formatearLinkWhatsApp = (telefono: string) => {
     if (!telefono) return "#";
-    const numeroLimpio = telefono.replace(/\D/g, "");
+    const numeroLimpio = telefono.toString().replace(/\D/g, "");
     const numeroFinal = numeroLimpio.length === 10 ? `549${numeroLimpio}` : numeroLimpio;
     return `https://wa.me/${numeroFinal}`;
   };
@@ -236,9 +236,9 @@ export default function App() {
   const jugadoresFiltradosMat = (plantel || []).filter((p) => {
     if (!jugadorMat.trim()) return false;
     const q = jugadorMat.toLowerCase();
-    const apodo = (p.apodo || "").toLowerCase();
-    const nombre = (p.nombre || "").toLowerCase();
-    const lote = (p.lote || "").toLowerCase();
+    const apodo = (p.apodo || "").toString().toLowerCase();
+    const nombre = (p.nombre || "").toString().toLowerCase();
+    const lote = (p.lote || "").toString().toLowerCase();
     return apodo.includes(q) || nombre.includes(q) || lote.includes(q);
   });
 
@@ -257,13 +257,16 @@ export default function App() {
     try {
       const nombreFinal = jugadorSeleccionadoMat ? (jugadorSeleccionadoMat.apodo || jugadorSeleccionadoMat.nombre || "") : jugadorMat.trim();
       const res = await registrarMaterialesSheet(nombreFinal, materialesSeleccionados);
+      
       if (res.ok) {
         setMensajeMat({ tipo: 'exito', texto: `Materiales asignados a ${nombreFinal} con éxito.` });
         setJugadorMat("");
         setJugadorSeleccionadoMat(null);
         setMaterialesSeleccionados([]);
         const matData = await obtenerMaterialesSheet().catch(() => ({ historial: [] }));
-        if (matData && Array.isArray(matData.historial)) setHistorialMateriales(matData.historial);
+        if (matData && Array.isArray(matData.historial)) {
+          setHistorialMateriales(matData.historial);
+        }
       } else {
         setMensajeMat({ tipo: 'error', texto: res.mensaje });
       }
@@ -275,25 +278,38 @@ export default function App() {
   };
 
   const armarLinkWhatsappVIP = (item: RegistroMaterialSheet) => {
-    const msj = `Hola ${item.jugador}! Recordá que tenés prestado: ${item.materiales}. Acordate de llevarlo al próximo partido. Aca tenes el link para anotarte en cualquier momento antes de lunes y asegurarte participacion: ${LINK_INSCRIPCION_VIP}`;
+    const jugadorStr = (item.jugador || "").toString();
+    const materialesStr = (item.materiales || "").toString();
+    const msj = `Hola ${jugadorStr}! Recordá que tenés prestado: ${materialesStr}. Acordate de llevarlo al próximo partido. Aca tenes el link para anotarte en cualquier momento antes de lunes y asegurarte participacion: ${LINK_INSCRIPCION_VIP}`;
     
-    const pEncontrado = (plantel || []).find(p => (p.apodo && p.apodo.toLowerCase() === item.jugador.toLowerCase()) || (p.nombre && p.nombre.toLowerCase() === item.jugador.toLowerCase()));
+    const pEncontrado = (plantel || []).find(p => (p.apodo && p.apodo.toString().toLowerCase() === jugadorStr.toLowerCase()) || (p.nombre && p.nombre.toString().toLowerCase() === jugadorStr.toLowerCase()));
     const numTel = pEncontrado ? formatearLinkWhatsApp(pEncontrado.telefono).replace("https://wa.me/", "") : "";
 
     if (numTel && numTel !== "#") return `https://api.whatsapp.com/send?phone=${numTel}&text=${encodeURIComponent(msj)}`;
     return `https://api.whatsapp.com/send?text=${encodeURIComponent(msj)}`;
   };
 
-  const historialMatFiltrado = (historialMateriales || []).filter((h) =>
-    (h.jugador || "").toLowerCase().includes(busquedaMat.toLowerCase()) ||
-    (h.materiales || "").toLowerCase().includes(busquedaMat.toLowerCase()) ||
-    (h.lote && h.lote.toLowerCase().includes(busquedaMat.toLowerCase()))
-  );
+  const historialMatFiltrado = (historialMateriales || []).filter((h) => {
+    const jugadorTexto = (h.jugador || "").toString().toLowerCase();
+    const materialesTexto = (h.materiales || "").toString().toLowerCase();
+    const loteTexto = (h.lote || "").toString().toLowerCase();
+    const busquedaLimpa = busquedaMat.toLowerCase().trim();
+    
+    return jugadorTexto.includes(busquedaLimpa) || 
+           materialesTexto.includes(busquedaLimpa) || 
+           loteTexto.includes(busquedaLimpa);
+  });
 
   const plantelFiltrado = (plantel || []).filter(j => {
     if (!busquedaPlantel) return true;
     const termino = busquedaPlantel.toLowerCase();
-    return ((j.nombre && j.nombre.toLowerCase().includes(termino)) || (j.apodo && j.apodo.toLowerCase().includes(termino)) || (j.barrio && j.barrio.toLowerCase().includes(termino)) || (j.puesto && j.puesto.toLowerCase().includes(termino)) || (j.email && j.email.toLowerCase().includes(termino)));
+    const n = (j.nombre || "").toString().toLowerCase();
+    const a = (j.apodo || "").toString().toLowerCase();
+    const b = (j.barrio || "").toString().toLowerCase();
+    const p = (j.puesto || "").toString().toLowerCase();
+    const e = (j.email || "").toString().toLowerCase();
+    
+    return (n.includes(termino) || a.includes(termino) || b.includes(termino) || p.includes(termino) || e.includes(termino));
   });
 
   return (
@@ -426,10 +442,10 @@ export default function App() {
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {plantelFiltrado.map((j, i) => {
-                  const emailKey = (j.email || "").toLowerCase().trim();
-                  const emailAltKey = (j.email_alternativo || "").toLowerCase().trim();
-                  const apodoKey = (j.apodo || "").toLowerCase().trim();
-                  const nombreKey = (j.nombre || "").toLowerCase().trim();
+                  const emailKey = (j.email || "").toString().toLowerCase().trim();
+                  const emailAltKey = (j.email_alternativo || "").toString().toLowerCase().trim();
+                  const apodoKey = (j.apodo || "").toString().toLowerCase().trim();
+                  const nombreKey = (j.nombre || "").toString().toLowerCase().trim();
 
                   // Busca el puntaje validando por email o por coincidencia directa de nombre/apodo en BD Puntajes
                   let puntajeJugador = bdPuntajes[emailKey] ?? bdPuntajes[emailAltKey];
@@ -557,8 +573,11 @@ export default function App() {
                         {historialMatFiltrado.map((item, index) => (
                           <tr key={index} className="hover:bg-zinc-50/50">
                             <td className="py-3 px-3 text-zinc-500">{item.fecha}</td>
-                            <td className="py-3 px-3 font-semibold text-zinc-800">{item.jugador} {item.lote ? <span className="text-xs font-normal text-zinc-400 block">Lote {item.lote}</span> : ""}</td>
-                            <td className="py-3 px-3 text-zinc-600">{item.materiales}</td>
+                            <td className="py-3 px-3 font-semibold text-zinc-800">
+                              {(item.jugador || "").toString()} 
+                              {item.lote ? <span className="text-xs font-normal text-zinc-400 block">Lote {(item.lote || "").toString()}</span> : ""}
+                            </td>
+                            <td className="py-3 px-3 text-zinc-600">{(item.materiales || "").toString()}</td>
                             <td className="py-3 px-3 text-center">
                               <a href={armarLinkWhatsappVIP(item)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs bg-[#25D366] text-white hover:bg-[#20bd5a] px-3 py-1.5 rounded-lg font-bold transition">
                                 <MessageCircle className="w-4 h-4" /> Reclamar & VIP
