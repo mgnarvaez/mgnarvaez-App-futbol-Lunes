@@ -39,8 +39,8 @@ import {
   type PuntajeDetalle,
 } from "@/lib/sheets.functions";
 import { SEDES, SEDE_LABELS, type Sede, type InscripcionLocal } from "@/lib/types";
-import { armarConvocatoriasPorSede, type SedeConvocatoria } from "@/lib/services/armadorService";
-import { dividirEnEquipos } from "@/lib/services/equiposService";
+import { armarConvocatoriasPorSede, type SedeConvocatoria } from "@/lib/armadorService";
+import { dividirEnEquipos } from "@/lib/equiposService";
 
 export default function App() {
   const [vistaActiva, setVistaActiva] = useState<"panel" | "plantel" | "materiales" | "cotejo">("panel");
